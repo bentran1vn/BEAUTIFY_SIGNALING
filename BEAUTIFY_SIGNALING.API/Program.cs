@@ -17,11 +17,13 @@ builder.Services.AddRepositoryPersistence();
 
 builder.Services.AddTransient<IJwtServices, JwtServices>();
 builder.Services.AddTransient<ILiveStreamServices, LiveStreamServices>();
-builder.Services.AddSwaggerServices();
+
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddSwaggerServices();
 
 builder.Services.AddCors(
     options => options.AddDefaultPolicy(
@@ -48,9 +50,7 @@ app.MapHub<LivestreamHub>("/livestreamHub");
 //     
 // }
 app.UseSwagger();
-app.UseSwaggerUI();
-
-// app.UseSwaggerAPI();
+app.UseSwaggerAPI();
 
 app.UseHttpsRedirection();
 
