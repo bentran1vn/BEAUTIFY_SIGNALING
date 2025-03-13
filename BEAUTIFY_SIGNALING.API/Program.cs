@@ -47,10 +47,10 @@ app.MapHub<LivestreamHub>("/livestreamHub");
 // {
 //     
 // }
-// app.UseSwagger();
-// app.UseSwaggerUI();
+app.UseSwagger();
+app.UseSwaggerUI();
 
-app.UseSwaggerAPI();
+// app.UseSwaggerAPI();
 
 app.UseHttpsRedirection();
 
