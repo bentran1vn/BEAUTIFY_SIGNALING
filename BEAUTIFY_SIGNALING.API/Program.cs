@@ -18,7 +18,6 @@ builder.Services.AddRepositoryPersistence();
 builder.Services.AddTransient<IJwtServices, JwtServices>();
 builder.Services.AddTransient<ILiveStreamServices, LiveStreamServices>();
 
-
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -49,6 +48,12 @@ app.UseCors();
 // {
 //     
 // }
+
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromMinutes(2)
+});
+
 app.UseSwagger();
 app.UseSwaggerAPI();
 app.MapHub<LivestreamHub>("/livestreamHub");
