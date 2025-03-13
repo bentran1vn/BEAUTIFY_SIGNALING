@@ -43,11 +43,13 @@ app.UseCors();
 app.MapHub<LivestreamHub>("/livestreamHub");
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// if (app.Environment.IsDevelopment())
+// {
+//     
+// }
+// app.UseSwagger();
+// app.UseSwaggerUI();
+
 app.UseSwaggerAPI();
 
 app.UseHttpsRedirection();
