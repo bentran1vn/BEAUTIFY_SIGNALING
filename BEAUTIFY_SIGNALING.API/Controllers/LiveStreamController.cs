@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace BEAUTIFY_SIGNALING.API.Controllers;
 
-[Route("api/v1/livestream")]
+[Route("api/[controller]")]
 [ApiController]
 public class LiveStreamController: ControllerBase
 {

@@ -42,7 +42,7 @@ builder.Services.AddSingleton(new JanusWebSocketManager(builder.Configuration.Ge
 var app = builder.Build();
 
 app.UseCors();
-app.MapHub<LivestreamHub>("/livestreamHub");
+
 
 // Configure the HTTP request pipeline.
 // if (app.Environment.IsDevelopment())
@@ -51,6 +51,7 @@ app.MapHub<LivestreamHub>("/livestreamHub");
 // }
 app.UseSwagger();
 app.UseSwaggerAPI();
+app.MapHub<LivestreamHub>("/livestreamHub");
 
 app.UseHttpsRedirection();
 
