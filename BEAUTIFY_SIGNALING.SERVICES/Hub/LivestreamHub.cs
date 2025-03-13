@@ -277,6 +277,78 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         await Clients.Caller.SendAsync("RoomCreatedAndJoined", hostCreateRoomResponse);
     }
     
+    public async Task EndLivestream(Guid roomGuid)
+{
+    if (!Rooms.TryGetValue(roomGuid, out var janusInfo))
+    {
+        _logger.LogError("🚨 Room {RoomGuid} not found", roomGuid);
+        await Clients.Caller.SendAsync("JanusError", "Room not found.");
+        return;
+    }
+
+    // Ensure that only the host can end the livestream
+    if (!UserRooms.TryGetValue(Context.ConnectionId, out var rooms) || !rooms.Contains(roomGuid))
+    {
+        _logger.LogWarning("🚨 Unauthorized end livestream attempt by {ConnectionId}", Context.ConnectionId);
+        await Clients.Caller.SendAsync("JanusError", "Unauthorized action.");
+        return;
+    }
+
+    _logger.LogInformation("🚨 Ending livestream for Room {RoomGuid}", roomGuid);
+
+    // Step 1: Destroy Janus session
+    var destroySessionRequest = new JObject
+    {
+        ["janus"] = "message",
+        ["session_id"] = janusInfo.sessionId,
+        ["handle_id"] = janusInfo.handleId,
+        ["transaction"] = Guid.NewGuid().ToString(),
+        ["body"] = new JObject
+        {
+            ["request"] = "destroy",
+            ["room"] = janusInfo.janusRoomId
+        }
+    };
+
+    var response = await _janusWsManager.SendAsync(destroySessionRequest);
+    if (response?["janus"]?.ToString() != "success")
+    {
+        _logger.LogError("🚨 Failed to destroy Janus session for room {RoomGuid}", roomGuid);
+        await Clients.Caller.SendAsync("JanusError", "Failed to destroy Janus session.");
+        return;
+    }
+
+    _logger.LogInformation("✅ Janus session destroyed for room {RoomGuid}", roomGuid);
+
+    // Step 2: Remove from memory
+    Rooms.TryRemove(roomGuid, out _);
+    RoomListeners.TryRemove(roomGuid, out _);
+
+    // Step 3: Remove from user groups
+    if (UserRooms.TryGetValue(Context.ConnectionId, out var userRooms))
+    {
+        userRooms.Remove(roomGuid);
+        if (userRooms.Count == 0)
+            UserRooms.TryRemove(Context.ConnectionId, out _);
+    }
+
+    // Remove all listeners from the group
+    await Clients.Group(roomGuid + HostSuffix).SendAsync("LivestreamEnded");
+    await Clients.Group(roomGuid + ListenerSuffix).SendAsync("LivestreamEnded");
+
+    await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomGuid + HostSuffix);
+
+    // Step 4: Update the database to mark the livestream as ended
+    var room = await _livestreamRoomRepository.FindByIdAsync(roomGuid);
+    if (room != null)
+    {
+        room.EndDate = TimeOnly.FromDateTime(DateTime.UtcNow);
+        await _dbContext.SaveChangesAsync();
+    }
+
+    _logger.LogInformation("✅ Livestream for Room {RoomGuid} has ended", roomGuid);
+}
+    
     public async Task JoinAsListener(Guid roomGuid)
     {
         if (!Rooms.TryGetValue(roomGuid, out var janusInfo))
