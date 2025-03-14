@@ -9,8 +9,6 @@ public class JanusWebSocketManager : IDisposable
 {
     private readonly WebsocketClient _wsClient;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> _transactions;
-    private long? _sessionId;
-    private readonly object _lock = new();
 
     public JanusWebSocketManager(string janusWebSocketUrl)
     {

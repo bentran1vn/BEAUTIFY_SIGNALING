@@ -259,6 +259,7 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             Type = "Selling",
             Date = DateOnly.FromDateTime(DateTime.UtcNow),
             StartDate = TimeOnly.FromDateTime(DateTime.UtcNow),
+            Status = "live",
         };
         
         _livestreamRoomRepository.Add(liveStreamRoom);
@@ -342,6 +343,7 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
     var room = await _livestreamRoomRepository.FindByIdAsync(roomGuid);
     if (room != null)
     {
+        room.Status = "unlive";
         room.EndDate = TimeOnly.FromDateTime(DateTime.UtcNow);
         await _dbContext.SaveChangesAsync();
     }
@@ -616,24 +618,24 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
     
     public async Task SendMessage(Guid roomGuid, string message)
     {
-        var userId = Context.GetHttpContext()?.Request.Query["userId"];
-
-        if (string.IsNullOrEmpty(userId))
-        {
-            await Clients.Caller.SendAsync("JanusError", "Unauthorized");
-            return;
-        }
+        // var userId = Context.GetHttpContext()?.Request.Query["userId"];
+        //
+        // if (string.IsNullOrEmpty(userId))
+        // {
+        //     await Clients.Caller.SendAsync("JanusError", "Unauthorized");
+        //     return;
+        // }
 
         // Broadcast message to the room
         await Clients.Group(roomGuid + HostSuffix).SendAsync("ReceiveMessage", new
         {
-            UserId = userId,
+            UserId = Guid.NewGuid().ToString(),
             Message = message
         });
 
         await Clients.Group(roomGuid + ListenerSuffix).SendAsync("ReceiveMessage", new
         {
-            UserId = userId,
+            UserId = Guid.NewGuid().ToString(),
             Message = message
         });
     }

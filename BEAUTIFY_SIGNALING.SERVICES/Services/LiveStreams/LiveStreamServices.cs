@@ -3,6 +3,7 @@ using BEAUTIFY_PACKAGES.BEAUTIFY_PACKAGES.DOMAIN.Abstractions.Repositories;
 using BEAUTIFY_SIGNALING.REPOSITORY.Entities;
 using BEAUTIFY_SIGNALING.SERVICES.Abstractions;
 using Microsoft.EntityFrameworkCore;
+using MongoDB.Driver.Linq;
 
 namespace BEAUTIFY_SIGNALING.SERVICES.Services.LiveStreams;
 
@@ -15,17 +16,24 @@ public class LiveStreamServices : ILiveStreamServices
         _liveStreamRepository = liveStreamRepository;
     }
 
-    public async Task<Result<List<ResponseModel.GetAllLiveStream>>> GetAllLiveStream(Guid? clinicId)
+    public async Task<Result<List<ResponseModel.GetAllLiveStream>>> GetAllLiveStream(Guid? clinicId, string? role)
     {
         var query = _liveStreamRepository.FindAll(x => x.IsDeleted == false);
 
         query = query.Include(x => x.Clinic);
+        
+        query = query.OrderByDescending(x => x.StartDate);
 
         if (clinicId.HasValue)
         {
             query = query.Where(x => x.ClinicId == clinicId);
         }
-
+        
+        if (!(role != null && role.Equals("Clinic Admin")))
+        {
+            query = query.Where(x => x.EndDate == null || x.Status == "unlive");
+        }
+        
         var liveStreamList = await query.ToListAsync();
 
         var result = liveStreamList.Select(x => 
