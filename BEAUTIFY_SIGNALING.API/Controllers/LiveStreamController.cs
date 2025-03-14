@@ -18,7 +18,7 @@ public class LiveStreamController: ControllerBase
     [HttpGet]
     public async Task<IResult> GetAll(Guid? clinicId)
     {
-        var result = await _liveStreamServices.GetAllLiveStream(clinicId);
+        var result = await _liveStreamServices.GetAllLiveStream(clinicId, null);
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
     
