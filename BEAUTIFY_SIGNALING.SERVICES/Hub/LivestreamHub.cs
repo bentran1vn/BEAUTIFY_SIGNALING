@@ -630,13 +630,41 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         await Clients.Group(roomGuid + HostSuffix).SendAsync("ReceiveMessage", new
         {
             UserId = Guid.NewGuid().ToString(),
-            Message = message
+            Message = message,
+            CreateAt = DateTime.Now
         });
 
         await Clients.Group(roomGuid + ListenerSuffix).SendAsync("ReceiveMessage", new
         {
             UserId = Guid.NewGuid().ToString(),
-            Message = message
+            Message = message,
+            CreateAt = DateTime.Now
+        });
+    }
+    
+    public async Task SendReaction(Guid roomGuid, int id)
+    {
+        // var userId = Context.GetHttpContext()?.Request.Query["userId"];
+        //
+        // if (string.IsNullOrEmpty(userId))
+        // {
+        //     await Clients.Caller.SendAsync("JanusError", "Unauthorized");
+        //     return;
+        // }
+        
+        // Broadcast message to the room
+        await Clients.Group(roomGuid + HostSuffix).SendAsync("ReceiveReaction", new
+        {
+            UserId = Guid.NewGuid().ToString(),
+            Id = id,
+            CreateAt = DateTime.Now
+        });
+
+        await Clients.Group(roomGuid + ListenerSuffix).SendAsync("ReceiveReaction", new
+        {
+            UserId = Guid.NewGuid().ToString(),
+            Id = id,
+            CreateAt = DateTime.Now
         });
     }
 
