@@ -22,16 +22,18 @@ public class LiveStreamServices : ILiveStreamServices
 
         query = query.Include(x => x.Clinic);
         
-        query = query.OrderByDescending(x => x.StartDate);
+        query = query
+            .OrderByDescending(x => x.Date)
+            .ThenByDescending(y => y.StartDate);
 
         if (clinicId.HasValue)
         {
             query = query.Where(x => x.ClinicId == clinicId);
         }
         
-        if (!(role != null && role.Equals("Clinic Admin")))
+        if (role == null || !role.Equals("Clinic Admin"))
         {
-            query = query.Where(x => x.EndDate == null || x.Status == "unlive");
+            query = query.Where(x => x.EndDate == null && x.Status == "live");
         }
         
         var liveStreamList = await query.ToListAsync();
