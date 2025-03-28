@@ -142,7 +142,7 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         // var token = Context.GetHttpContext()?.Request.Query["token"]!;
         // var principal = _jwtServices.VerifyForgetToken(token!);
         // var clinicId = principal?.FindFirst("ClinicId")?.Value!;
-        var clinicId = "3AB003E6-B3F0-4FB6-8912-8DFB83132B08";
+        var clinicId = "78705CFA-7097-408F-93E2-70950FC886A3";
         
         _logger.LogInformation("Creating room {RoomGuid}", roomGuid);
         
