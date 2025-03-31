@@ -56,7 +56,7 @@ app.UseWebSockets(new WebSocketOptions
 
 app.UseSwagger();
 app.UseSwaggerAPI();
-app.MapHub<LivestreamHub>("/livestreamHub");
+app.MapHub<LivestreamHub>("api/LivestreamHub");
 
 app.UseHttpsRedirection();
 
