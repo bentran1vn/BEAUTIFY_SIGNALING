@@ -6,6 +6,7 @@ using BEAUTIFY_SIGNALING.REPOSITORY.Entities;
 using BEAUTIFY_SIGNALING.SERVICES.Abstractions;
 using BEAUTIFY_SIGNALING.SERVICES.LiveStream;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
@@ -24,13 +25,15 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
     private const int VirtualViewBoost = 10;
     private readonly IJwtServices _jwtServices;
     private readonly IRepositoryBase<LivestreamRoom, Guid> _livestreamRoomRepository;
+    private readonly IRepositoryBase<Promotion, Guid> _promotionRepository;
+    private readonly IRepositoryBase<Service, Guid> _servicesRepository;
     private readonly ApplicationDbContext _dbContext;
     
     private static readonly ConcurrentDictionary<Guid, (long sessionId, long handleId, long janusRoomId)> Rooms = new();
     private static readonly ConcurrentDictionary<Guid, HashSet<string>> RoomListeners = new();
     private static readonly ConcurrentDictionary<string, HashSet<Guid>> UserRooms = new();
     
-    public LivestreamHub(JanusWebSocketManager janusWsManager, ILogger<LivestreamHub> logger, HttpClient httpClient, IConfiguration configuration, IJwtServices jwtServices, IRepositoryBase<LivestreamRoom, Guid> livestreamRoomRepository, ApplicationDbContext dbContext)
+    public LivestreamHub(JanusWebSocketManager janusWsManager, ILogger<LivestreamHub> logger, HttpClient httpClient, IConfiguration configuration, IJwtServices jwtServices, IRepositoryBase<LivestreamRoom, Guid> livestreamRoomRepository, ApplicationDbContext dbContext, IRepositoryBase<Promotion, Guid> promotionRepository, IRepositoryBase<Service, Guid> servicesRepository)
     {
         _janusWsManager = janusWsManager;
         _logger = logger;
@@ -38,6 +41,8 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         _jwtServices = jwtServices;
         _livestreamRoomRepository = livestreamRoomRepository;
         _dbContext = dbContext;
+        _promotionRepository = promotionRepository;
+        _servicesRepository = servicesRepository;
         _janusUrl = configuration.GetValue<string>("JanusUrl")!;
     }
     
@@ -62,7 +67,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         // _logger.LogInformation($"✅ Clinic {clinicId} connected with connection ID: {Context.ConnectionId}");
         await base.OnConnectedAsync();
     }
-    
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         if (UserRooms.TryGetValue(Context.ConnectionId, out var rooms))
@@ -84,7 +88,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
 
         await base.OnDisconnectedAsync(exception);
     }
-    
     private async Task UpdateViewerCount(Guid roomGuid)
     {
         var realCount = RoomListeners.GetValueOrDefault(roomGuid)?.Count ?? 0;
@@ -96,7 +99,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         // Send to listeners → Virtual view count (marketing boost)
         await Clients.Group(roomGuid + ListenerSuffix).SendAsync("ListenerCountUpdated", virtualCount);
     }
-    
     public async Task<long?> CreateSessionViaHttp()
     {
         var request = new JObject
@@ -135,7 +137,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         _logger.LogError("🚨 Failed to create session over HTTP. Status: {StatusCode}", response.StatusCode);
         return null;
     }
-    
     public async Task HostCreateRoom()
     {
         var roomGuid = Guid.NewGuid();
@@ -277,7 +278,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         
         await Clients.Caller.SendAsync("RoomCreatedAndJoined", hostCreateRoomResponse);
     }
-    
     public async Task EndLivestream(Guid roomGuid)
 {
     if (!Rooms.TryGetValue(roomGuid, out var janusInfo))
@@ -348,9 +348,21 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         await _dbContext.SaveChangesAsync();
     }
 
+    var promotions = await _promotionRepository.FindAll(
+        x => x.LivestreamRoomId.Equals(roomGuid) &&
+             x.IsActivated && !x.IsDeleted).ToListAsync();
+
+    foreach (var promotion in promotions)
+    {
+        promotion.IsActivated = false;
+        promotion.EndDate = DateTimeOffset.UtcNow;
+    }
+    
+    _promotionRepository.UpdateRange(promotions);
+    await _dbContext.SaveChangesAsync(new CancellationToken());
+
     _logger.LogInformation("✅ Livestream for Room {RoomGuid} has ended", roomGuid);
 }
-    
     public async Task JoinAsListener(Guid roomGuid)
     {
         if (!Rooms.TryGetValue(roomGuid, out var janusInfo))
@@ -484,7 +496,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         // Notify all about viewer update
         await UpdateViewerCount(roomGuid);
     }
-    
     public async Task StartPublish(Guid roomGuid, string type, string sdp)
     {
         try
@@ -570,7 +581,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             await Clients.Caller.SendAsync("JanusError", "Internal server error during publishing.");
         }
     }
-    
     public async Task SendAnswerToJanus(long janusRoomId, long sessionId, long handleId, string sdpAnswer)
     {
         var answerMessage = new JObject
@@ -604,7 +614,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             await Clients.Caller.SendAsync("JanusError", "Unable to send answer.");
         }
     }
-
     public async Task KeepAlive(long sessionId)
     {
         var keepAliveResponse = await _janusWsManager.SendAsync(new JObject
@@ -615,7 +624,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         });
         _logger.LogInformation("KeepAlive: {keepAliveResponse}", keepAliveResponse);
     }
-    
     public async Task SendMessage(Guid roomGuid, string message)
     {
         // var userId = Context.GetHttpContext()?.Request.Query["userId"];
@@ -641,7 +649,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             CreateAt = DateTime.Now
         });
     }
-    
     public async Task SendReaction(Guid roomGuid, int id)
     {
         // var userId = Context.GetHttpContext()?.Request.Query["userId"];
@@ -667,7 +674,6 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             CreateAt = DateTime.Now
         });
     }
-
     public async Task SendSignaling(Guid roomGuid, string message)
     {
         var userId = Context.GetHttpContext()?.Request.Query["userId"];
@@ -679,5 +685,108 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             Message = message
         });
     }
-    
+    public async Task SetPromotionService(Guid serviceId, Guid roomId, int percent)
+    {
+        try
+        {
+            var service = await _servicesRepository.FindByIdAsync(serviceId);
+
+            if (service != null)
+            {
+                var exist = await _promotionRepository
+                    .FindSingleAsync(x => x.ServiceId.Equals(serviceId) &&
+                                          x.LivestreamRoomId.Equals(roomId) &&
+                                          x.IsActivated && !x.IsDeleted);
+
+                if (exist != null)
+                {
+                    exist.IsActivated = false;
+                }
+            
+                var promotion = new Promotion()
+                {
+                    Id = Guid.NewGuid(),
+                    Name = $"LiveStream-{DateTimeOffset.UtcNow}",
+                    StartDate = DateTimeOffset.UtcNow,
+                    LivestreamRoomId = roomId,
+                    DiscountPercent = percent,
+                    IsActivated = true,
+                    ServiceId = serviceId,
+                };
+            
+                _promotionRepository.Add(promotion);
+
+                await _dbContext.SaveChangesAsync();
+                
+                await Clients.Group(roomId + HostSuffix).SendAsync("UpdateServicePromotion", new
+                {
+                    Id = serviceId,
+                    DiscountLivePercent = promotion.DiscountPercent,
+                    CreateAt = DateTimeOffset.UtcNow
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Problem in add promotion for service", ex.Message);
+        }
+    }
+    public async Task DisplayService(Guid serviceId, Guid roomId, bool isDisplay)
+    {
+        try
+        {
+            var query = _servicesRepository.FindAll(x => x.Id.Equals(serviceId));
+
+            query = query
+                .Include(x => x.ServiceMedias)
+                .Include(x => x.Promotions);
+
+            var service = await query.FirstOrDefaultAsync();
+
+            if (service != null)
+            {
+                if (isDisplay)
+                {
+                    await Clients.Group(roomId + ListenerSuffix).SendAsync("DisplayService", new
+                    {
+                        Id = serviceId,
+                        IsDisplay = isDisplay,
+                        Service = new
+                        {
+                            Id = service.Id,
+                            Name = service.Name,
+                            Description = service.Description,
+                            Images = service.ServiceMedias?.Select(x => x.ImageUrl).ToList() ?? [],
+                            MaxPrice = service.MaxPrice,
+                            MinPrice = service.MinPrice,
+                            DiscountPercent = service.Promotions?.FirstOrDefault(
+                                x => 
+                                    x.LivestreamRoomId.Equals(roomId) &&
+                                    x.ServiceId.Equals(serviceId) &&
+                                    x.IsActivated &&
+                                    !x.IsDeleted
+                            )?.DiscountPercent ?? 0.0,
+                            Category = new
+                            {
+                                Name = service.Category!.Name,
+                                Description = service.Category!.Description,
+                            }
+                        }
+                    });
+                }
+                else
+                {
+                    await Clients.Group(roomId + ListenerSuffix).SendAsync("DisplayService", new
+                    {
+                        Id = serviceId,
+                        IsDisplay = isDisplay,
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Problem in add promotion for service", ex.Message);
+        }
+    }
 }

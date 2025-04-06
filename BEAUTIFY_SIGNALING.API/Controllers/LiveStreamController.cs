@@ -15,10 +15,17 @@ public class LiveStreamController: ControllerBase
         _liveStreamServices = liveStreamServices;
     }
 
-    [HttpGet]
-    public async Task<IResult> GetAll(Guid? clinicId)
+    [HttpGet("Rooms")]
+    public async Task<IResult> GetAllRooms(Guid? clinicId)
     {
         var result = await _liveStreamServices.GetAllLiveStream(clinicId, null);
+        return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
+    }
+    
+    [HttpGet("Services")]
+    public async Task<IResult> GetAllServices(Guid clinicId, Guid userId, Guid roomId)
+    {
+        var result = await _liveStreamServices.GetAllServices(clinicId, userId, roomId);
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
     
