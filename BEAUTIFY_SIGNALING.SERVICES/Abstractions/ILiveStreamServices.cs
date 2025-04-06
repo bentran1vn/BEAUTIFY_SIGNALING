@@ -6,4 +6,5 @@ namespace BEAUTIFY_SIGNALING.SERVICES.Abstractions;
 public interface ILiveStreamServices
 {
     Task<Result<List<ResponseModel.GetAllLiveStream>>> GetAllLiveStream(Guid? clinicId, string? role);
+    Task<Result<List<ResponseModel.GetAllService>>> GetAllServices(Guid clinicId, Guid userId,  Guid roomId);
 }

@@ -7,4 +7,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 {
     public DbSet<Clinic> Clinic { get; set; }
     public DbSet<LivestreamRoom> LivestreamRoom { get; set; }
+    public DbSet<Category> Category { get; set; }
+    public DbSet<ClinicService> ClinicService { get; set; }
+    public DbSet<Promotion> Promotion { get; set; }
+    public DbSet<Role> Role { get; set; }
+    public DbSet<Service> Service { get; set; }
+    public DbSet<ServiceMedia> ServiceMedia { get; set; }
+    public DbSet<Staff> Staff { get; set; }
+    public DbSet<User> User { get; set; }
+    public DbSet<UserClinic> UserClinic { get; set; }
 }

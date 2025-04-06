@@ -9,4 +9,21 @@ public class ResponseModel
         Guid ClinicId,
         string ClinicName
     );
+    
+    public record GetAllService(
+        Guid Id,
+        string Name,
+        string Description,
+        List<string> Images,
+        decimal MaxPrice,
+        decimal MinPrice,
+        double DiscountLivePercent,
+        Category Category
+    );
+    
+    public record Category(
+        Guid Id,
+        string Name,
+        string? Description
+    );
 }
