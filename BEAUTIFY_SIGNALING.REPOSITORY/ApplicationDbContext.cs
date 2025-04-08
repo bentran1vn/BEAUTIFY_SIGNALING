@@ -16,4 +16,5 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Staff> Staff { get; set; }
     public DbSet<User> User { get; set; }
     public DbSet<UserClinic> UserClinic { get; set; }
+    public DbSet<Order> Order { get; set; }
 }

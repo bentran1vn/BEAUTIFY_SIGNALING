@@ -5,6 +5,8 @@ public class ResponseModel
     public record GetAllLiveStream(
         Guid Id,
         string Name,
+        string? Description,
+        string? Image,
         DateTimeOffset StartDate,
         Guid ClinicId,
         string ClinicName
