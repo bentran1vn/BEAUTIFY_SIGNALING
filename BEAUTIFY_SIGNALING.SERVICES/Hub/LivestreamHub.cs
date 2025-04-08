@@ -13,42 +13,42 @@ using Newtonsoft.Json.Linq;
 
 namespace BEAUTIFY_SIGNALING.SERVICES.Hub;
 
-public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
+public class LivestreamHub(
+    JanusWebSocketManager janusWsManager,
+    ILogger<LivestreamHub> logger,
+    HttpClient httpClient,
+    IConfiguration configuration,
+    IRepositoryBase<LivestreamRoom, Guid> livestreamRoomRepository,
+    ApplicationDbContext dbContext,
+    IRepositoryBase<Promotion, Guid> promotionRepository,
+    IRepositoryBase<Service, Guid> servicesRepository,
+    IRepositoryBase<UserClinic, Guid> userClinicRepository,
+    IRepositoryBase<Order, Guid> orderRepository)
+    : Microsoft.AspNetCore.SignalR.Hub
 {
-    private readonly JanusWebSocketManager _janusWsManager;
     private const string HostSuffix = "_host";
     private const string ListenerSuffix = "_listener";
     private const string JanusVideoRoomPlugin = "janus.plugin.videoroom";
-    private readonly ILogger<LivestreamHub> _logger;
-    private readonly HttpClient _httpClient;
-    private readonly string _janusUrl;
+    private readonly string _janusUrl = configuration.GetValue<string>("JanusUrl")!;
     private const int VirtualViewBoost = 10;
-    private readonly IJwtServices _jwtServices;
-    private readonly IRepositoryBase<LivestreamRoom, Guid> _livestreamRoomRepository;
-    private readonly IRepositoryBase<Promotion, Guid> _promotionRepository;
-    private readonly IRepositoryBase<Service, Guid> _servicesRepository;
-    private readonly ApplicationDbContext _dbContext;
-    
+
     private static readonly ConcurrentDictionary<Guid, (long sessionId, long handleId, long janusRoomId)> Rooms = new();
     private static readonly ConcurrentDictionary<Guid, HashSet<string>> RoomListeners = new();
     private static readonly ConcurrentDictionary<string, HashSet<Guid>> UserRooms = new();
-    
-    public LivestreamHub(JanusWebSocketManager janusWsManager, ILogger<LivestreamHub> logger, HttpClient httpClient, IConfiguration configuration, IJwtServices jwtServices, IRepositoryBase<LivestreamRoom, Guid> livestreamRoomRepository, ApplicationDbContext dbContext, IRepositoryBase<Promotion, Guid> promotionRepository, IRepositoryBase<Service, Guid> servicesRepository)
+    private static readonly ConcurrentDictionary<Guid, ConcurrentQueue<Activity>> RoomLogs = new();
+
+    private class Activity
     {
-        _janusWsManager = janusWsManager;
-        _logger = logger;
-        _httpClient = httpClient;
-        _jwtServices = jwtServices;
-        _livestreamRoomRepository = livestreamRoomRepository;
-        _dbContext = dbContext;
-        _promotionRepository = promotionRepository;
-        _servicesRepository = servicesRepository;
-        _janusUrl = configuration.GetValue<string>("JanusUrl")!;
+        public string? UserId { get; set; }
+        public int ActivityType { get; set; }
+        // 0: Join Stream
+        // 1: Send Message
+        // 2: Reaction
+        public DateTimeOffset Timestamp { get; set; }
     }
-    
     public override async Task OnConnectedAsync()
     {
-        // var token = Context.GetHttpContext()?.Request.Query["token"];
+        // var token = Context.GetHttpContext()?.Request.Query["userId"];
         // if (string.IsNullOrEmpty(token))
         // {
         //     _logger.LogWarning("🚫 Connection rejected due to missing token");
@@ -109,9 +109,9 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
 
         var content = new StringContent(request.ToString(), Encoding.UTF8, "application/json");
 
-        var response = await _httpClient.PostAsync(_janusUrl, content);
+        var response = await httpClient.PostAsync(_janusUrl, content);
         
-        _logger.LogInformation("HTTP. Session response: {response}", response.Content.ReadAsStringAsync().Result);
+        logger.LogInformation("HTTP. Session response: {response}", response.Content.ReadAsStringAsync().Result);
 
         if (response.IsSuccessStatusCode)
         {
@@ -129,37 +129,69 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
                 }
                 else
                 {
-                    _logger.LogError("🚨 Failed to extract session ID from Janus response.");
+                    logger.LogError("🚨 Failed to extract session ID from Janus response.");
                 }
             }
         }
 
-        _logger.LogError("🚨 Failed to create session over HTTP. Status: {StatusCode}", response.StatusCode);
+        logger.LogError("🚨 Failed to create session over HTTP. Status: {StatusCode}", response.StatusCode);
         return null;
     }
-    public async Task HostCreateRoom()
+    public class RoomData
+    {
+        public required string Name { get; set; }
+        public required string Description { get; set; }
+        public required string Image { get; set; }
+    }
+    public async Task HostCreateRoom(RoomData data)
     {
         var roomGuid = Guid.NewGuid();
-        // var token = Context.GetHttpContext()?.Request.Query["token"]!;
-        // var principal = _jwtServices.VerifyForgetToken(token!);
-        // var clinicId = principal?.FindFirst("ClinicId")?.Value!;
-        var clinicId = "78705CFA-7097-408F-93E2-70950FC886A3";
+        var clinicId = Context.GetHttpContext()?.Request.Query["clinicId"];
+        var userId = Context.GetHttpContext()?.Request.Query["userId"];
+        if (string.IsNullOrEmpty(clinicId) || string.IsNullOrEmpty(userId))
+        {
+            logger.LogWarning("🚫 Connection rejected due to missing token");
+            Context.Abort();
+            return;
+        }
         
-        _logger.LogInformation("Creating room {RoomGuid}", roomGuid);
+        var query = userClinicRepository
+            .FindAll(x => x.UserId.Equals(new Guid(userId!)) &&
+                x.ClinicId.Equals(new Guid(clinicId!)) && x.IsDeleted == false);
+        
+        var isAuth = await query.Include(x => x.User)
+            .ThenInclude(y => y.Role)
+            .FirstOrDefaultAsync();
+        
+        if (isAuth == null)
+        {
+            logger.LogWarning("🚫 Unauthorized access attempt by {UserId}", userId);
+            Context.Abort();
+            return;
+        }
+        
+        if(isAuth.User?.Role?.Name != "Clinic Admin")
+        {
+            logger.LogWarning("🚫 Unauthorized access attempt by {UserId}", userId);
+            Context.Abort();
+            return;
+        }
+        
+        logger.LogInformation("Creating room {RoomGuid}", roomGuid);
         
         var sessionId = await CreateSessionViaHttp()
                         ?? throw new Exception("Unable to create Janus session.");
         
-        _logger.LogInformation("sessionId: {sessionId}", sessionId);
+        logger.LogInformation("sessionId: {sessionId}", sessionId);
 
-        var handleId = await _janusWsManager.AttachPluginAsync(sessionId, JanusVideoRoomPlugin)
+        var handleId = await janusWsManager.AttachPluginAsync(sessionId, JanusVideoRoomPlugin)
                         ?? throw new Exception("Unable to attach plugin.");
         
-        _logger.LogInformation("handleId: {handleId}", handleId);
+        logger.LogInformation("handleId: {handleId}", handleId);
 
         long janusRoomId = new Random().Next(100000, 999999);
 
-        var createRoomResponse = await _janusWsManager.SendAsync(new JObject
+        var createRoomResponse = await janusWsManager.SendAsync(new JObject
         {
             ["janus"] = "message",
             ["session_id"] = sessionId,
@@ -174,10 +206,10 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             }
         });
         
-        _logger.LogInformation("createRoomResponse: {createRoomResponse}", createRoomResponse);
+        logger.LogInformation("createRoomResponse: {createRoomResponse}", createRoomResponse);
         
         var createRoomStatus = createRoomResponse["janus"]?.ToString();
-        _logger.LogInformation("createRoomResponse: {janusStatus}", createRoomStatus);
+        logger.LogInformation("createRoomResponse: {janusStatus}", createRoomStatus);
         
         if (createRoomStatus == null || !createRoomStatus.Equals("success"))
         {
@@ -186,7 +218,7 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         }
         
         // Step 2: Immediately join the room as a publisher (host)
-        var joinRoomResponse = await _janusWsManager.SendAsync(new JObject
+        var joinRoomResponse = await janusWsManager.SendAsync(new JObject
         {
             ["janus"] = "message",
             ["session_id"] = sessionId,
@@ -202,7 +234,7 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         });
         
         var joinRoomResponseStatus = createRoomResponse["janus"]?.ToString();
-        _logger.LogInformation("joinRoomResponse: {janusStatus}", joinRoomResponse);
+        logger.LogInformation("joinRoomResponse: {janusStatus}", joinRoomResponse);
 
         if (joinRoomResponseStatus == null || !joinRoomResponseStatus.Equals("success"))
         {
@@ -211,11 +243,11 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         }
         
         var janusUrl = $"{_janusUrl}/{sessionId}";
-        _logger.LogInformation("🔄 Fallback to HTTP GET: {JanusUrl}", janusUrl);
+        logger.LogInformation("🔄 Fallback to HTTP GET: {JanusUrl}", janusUrl);
 
-        var httpResponse = await _httpClient.GetAsync(janusUrl);
+        var httpResponse = await httpClient.GetAsync(janusUrl);
                     
-        _logger.LogWarning("Verify Join Room: {httpResponse}.", httpResponse.Content.ReadAsStringAsync().Result);
+        logger.LogWarning("Verify Join Room: {httpResponse}.", httpResponse.Content.ReadAsStringAsync().Result);
                     
         // if (httpResponse.IsSuccessStatusCode)
         // {
@@ -255,16 +287,18 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         var liveStreamRoom = new LivestreamRoom()
         {
             Id = roomGuid,
-            Name = $"Room {roomGuid}",
+            Name = data.Name,
             ClinicId = new Guid(clinicId),
             Type = "Selling",
+            Description = data.Description,
+            Image = data.Image,
             Date = DateOnly.FromDateTime(DateTime.UtcNow),
             StartDate = TimeOnly.FromDateTime(DateTime.UtcNow),
             Status = "live",
         };
         
-        _livestreamRoomRepository.Add(liveStreamRoom);
-        await _dbContext.SaveChangesAsync();
+        livestreamRoomRepository.Add(liveStreamRoom);
+        await dbContext.SaveChangesAsync();
         
         var hostCreateRoomResponse = new
         {
@@ -274,95 +308,148 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             HandleId = handleId
         };
         
-        _logger.LogInformation("HostCreateRoom: {HostCreateRoomResponse}", hostCreateRoomResponse);
+        logger.LogInformation("HostCreateRoom: {HostCreateRoomResponse}", hostCreateRoomResponse);
         
         await Clients.Caller.SendAsync("RoomCreatedAndJoined", hostCreateRoomResponse);
     }
     public async Task EndLivestream(Guid roomGuid)
-{
-    if (!Rooms.TryGetValue(roomGuid, out var janusInfo))
     {
-        _logger.LogError("🚨 Room {RoomGuid} not found", roomGuid);
-        await Clients.Caller.SendAsync("JanusError", "Room not found.");
-        return;
-    }
-
-    // Ensure that only the host can end the livestream
-    if (!UserRooms.TryGetValue(Context.ConnectionId, out var rooms) || !rooms.Contains(roomGuid))
-    {
-        _logger.LogWarning("🚨 Unauthorized end livestream attempt by {ConnectionId}", Context.ConnectionId);
-        await Clients.Caller.SendAsync("JanusError", "Unauthorized action.");
-        return;
-    }
-
-    _logger.LogInformation("🚨 Ending livestream for Room {RoomGuid}", roomGuid);
-
-    // Step 1: Destroy Janus session
-    var destroySessionRequest = new JObject
-    {
-        ["janus"] = "message",
-        ["session_id"] = janusInfo.sessionId,
-        ["handle_id"] = janusInfo.handleId,
-        ["transaction"] = Guid.NewGuid().ToString(),
-        ["body"] = new JObject
+        if (!Rooms.TryGetValue(roomGuid, out var janusInfo))
         {
-            ["request"] = "destroy",
-            ["room"] = janusInfo.janusRoomId
+            logger.LogError("🚨 Room {RoomGuid} not found", roomGuid);
+            await Clients.Caller.SendAsync("JanusError", "Room not found.");
+            return;
         }
-    };
 
-    var response = await _janusWsManager.SendAsync(destroySessionRequest);
-    if (response?["janus"]?.ToString() != "success")
-    {
-        _logger.LogError("🚨 Failed to destroy Janus session for room {RoomGuid}", roomGuid);
-        await Clients.Caller.SendAsync("JanusError", "Failed to destroy Janus session.");
-        return;
+        // Ensure that only the host can end the livestream
+        if (!UserRooms.TryGetValue(Context.ConnectionId, out var rooms) || !rooms.Contains(roomGuid))
+        {
+            logger.LogWarning("🚨 Unauthorized end livestream attempt by {ConnectionId}", Context.ConnectionId);
+            await Clients.Caller.SendAsync("JanusError", "Unauthorized action.");
+            return;
+        }
+
+        logger.LogInformation("🚨 Ending livestream for Room {RoomGuid}", roomGuid);
+
+        // Step 1: Destroy Janus session
+        var destroySessionRequest = new JObject
+        {
+            ["janus"] = "message",
+            ["session_id"] = janusInfo.sessionId,
+            ["handle_id"] = janusInfo.handleId,
+            ["transaction"] = Guid.NewGuid().ToString(),
+            ["body"] = new JObject
+            {
+                ["request"] = "destroy",
+                ["room"] = janusInfo.janusRoomId
+            }
+        };
+
+        var response = await janusWsManager.SendAsync(destroySessionRequest);
+        if (response?["janus"]?.ToString() != "success")
+        {
+            logger.LogError("🚨 Failed to destroy Janus session for room {RoomGuid}", roomGuid);
+            await Clients.Caller.SendAsync("JanusError", "Failed to destroy Janus session.");
+            return;
+        }
+
+        logger.LogInformation("✅ Janus session destroyed for room {RoomGuid}", roomGuid);
+
+        // Step 2: Remove from memory
+        Rooms.TryRemove(roomGuid, out _);
+        RoomListeners.TryRemove(roomGuid, out _);
+
+        // Step 3: Remove from user groups
+        if (UserRooms.TryGetValue(Context.ConnectionId, out var userRooms))
+        {
+            userRooms.Remove(roomGuid);
+            if (userRooms.Count == 0)
+                UserRooms.TryRemove(Context.ConnectionId, out _);
+        }
+        
+        var joinCount = 0;
+        var messageCount = 0;
+        var reactionCount = 0;
+        var completedBooking = 0;
+
+        var check = RoomLogs.TryGetValue(roomGuid, out var totalLogs);
+        
+        if (check && totalLogs != null)
+        {
+            foreach (var activity in totalLogs)
+            {
+                switch (activity.ActivityType)
+                {
+                    case 0: // Join Stream
+                        joinCount++;
+                        break;
+                    case 1: // Send Message
+                        messageCount++;
+                        break;
+                    case 2: // Reaction
+                        reactionCount++;
+                        break;
+                }
+            }
+        }
+        
+        var completedBookingCount = await orderRepository
+            .FindAll(x => x.LivestreamRoomId.Equals(roomGuid) && x.Status == "Completed")
+            .CountAsync();
+
+        // Remove all listeners from the group
+        await Clients.Group(roomGuid + HostSuffix).SendAsync("LivestreamEnded", new
+        {
+            JoinCount = joinCount,
+            MessageCount = messageCount,
+            ReactionCount = reactionCount,
+            TotalActivities = joinCount + messageCount + reactionCount,
+            TotalBooking = completedBookingCount
+        });
+        
+        await Clients.Group(roomGuid + ListenerSuffix).SendAsync("LivestreamEnded");
+
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomGuid + HostSuffix);
+
+        // Step 4: Update the database to mark the livestream as ended
+        var room = await livestreamRoomRepository.FindByIdAsync(roomGuid);
+        if (room != null)
+        {
+            room.Status = "unlive";
+            room.EndDate = TimeOnly.FromDateTime(DateTime.UtcNow);
+            await dbContext.SaveChangesAsync();
+        }
+
+        var promotions = await promotionRepository.FindAll(
+            x => x.LivestreamRoomId.Equals(roomGuid) &&
+                 x.IsActivated && !x.IsDeleted).ToListAsync();
+
+        foreach (var promotion in promotions)
+        {
+            promotion.IsActivated = false;
+            promotion.EndDate = DateTimeOffset.UtcNow;
+        }
+        
+        promotionRepository.UpdateRange(promotions);
+        await dbContext.SaveChangesAsync();
+
+        logger.LogInformation("✅ Livestream for Room {RoomGuid} has ended", roomGuid);
     }
-
-    _logger.LogInformation("✅ Janus session destroyed for room {RoomGuid}", roomGuid);
-
-    // Step 2: Remove from memory
-    Rooms.TryRemove(roomGuid, out _);
-    RoomListeners.TryRemove(roomGuid, out _);
-
-    // Step 3: Remove from user groups
-    if (UserRooms.TryGetValue(Context.ConnectionId, out var userRooms))
+    private async Task RegisterRoomLog(Guid roomGuid, string userId, int activityType)
     {
-        userRooms.Remove(roomGuid);
-        if (userRooms.Count == 0)
-            UserRooms.TryRemove(Context.ConnectionId, out _);
+        if (!RoomLogs.TryGetValue(roomGuid, out var logs))
+        {
+            logs = new ConcurrentQueue<Activity>();
+            RoomLogs[roomGuid] = logs;
+        }
+
+        logs.Enqueue(new Activity
+        {
+            UserId = userId,
+            ActivityType = activityType,
+            Timestamp = DateTimeOffset.UtcNow
+        });
     }
-
-    // Remove all listeners from the group
-    await Clients.Group(roomGuid + HostSuffix).SendAsync("LivestreamEnded");
-    await Clients.Group(roomGuid + ListenerSuffix).SendAsync("LivestreamEnded");
-
-    await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomGuid + HostSuffix);
-
-    // Step 4: Update the database to mark the livestream as ended
-    var room = await _livestreamRoomRepository.FindByIdAsync(roomGuid);
-    if (room != null)
-    {
-        room.Status = "unlive";
-        room.EndDate = TimeOnly.FromDateTime(DateTime.UtcNow);
-        await _dbContext.SaveChangesAsync();
-    }
-
-    var promotions = await _promotionRepository.FindAll(
-        x => x.LivestreamRoomId.Equals(roomGuid) &&
-             x.IsActivated && !x.IsDeleted).ToListAsync();
-
-    foreach (var promotion in promotions)
-    {
-        promotion.IsActivated = false;
-        promotion.EndDate = DateTimeOffset.UtcNow;
-    }
-    
-    _promotionRepository.UpdateRange(promotions);
-    await _dbContext.SaveChangesAsync(new CancellationToken());
-
-    _logger.LogInformation("✅ Livestream for Room {RoomGuid} has ended", roomGuid);
-}
     public async Task JoinAsListener(Guid roomGuid)
     {
         if (!Rooms.TryGetValue(roomGuid, out var janusInfo))
@@ -371,10 +458,21 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             return;
         }
 
+        var userId = Context.GetHttpContext()?.Request.Query["userId"];
+        if (string.IsNullOrEmpty(userId))
+        {
+            logger.LogWarning("🚫 Connection rejected due to missing userId");
+            Context.Abort();
+            return;
+        }
+
+        // Register join activity
+        await RegisterRoomLog(roomGuid, userId, 0);
+
         var sessionId = await CreateSessionViaHttp()
                         ?? throw new Exception("Unable to create Janus session.");
         
-        var handleId = await _janusWsManager.AttachPluginAsync(sessionId, JanusVideoRoomPlugin)
+        var handleId = await janusWsManager.AttachPluginAsync(sessionId, JanusVideoRoomPlugin)
                         ?? throw new Exception("Unable to attach plugin.");
         
         // Response Feed
@@ -391,9 +489,9 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             }
         };
 
-        var response = await _janusWsManager.SendAsync(feedMessage);
+        var response = await janusWsManager.SendAsync(feedMessage);
         
-        _logger.LogInformation("feedMessageResponse {response}", response);
+        logger.LogInformation("feedMessageResponse {response}", response);
         
         if (response?["janus"]?.ToString() == "success")
         {
@@ -408,7 +506,7 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
                 if (host != null)
                 {
                     var hostId = host["id"]?.Value<long>();
-                    _logger.LogInformation("✅ Host ID: {HostId}", hostId);
+                    logger.LogInformation("✅ Host ID: {HostId}", hostId);
                     
                     var joinMessage = new JObject
                     {
@@ -431,16 +529,16 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
                         }
                     };
                     
-                     var feedResponse = await _janusWsManager.SendAsync(joinMessage);
+                     var feedResponse = await janusWsManager.SendAsync(joinMessage);
                      
-                     _logger.LogInformation("feedResponse: {feedResponse}", feedResponse);
+                     logger.LogInformation("feedResponse: {feedResponse}", feedResponse);
                     
                      if (feedResponse?["janus"]?.ToString() == "success" || feedResponse?["janus"]?.ToString() == "ack")
                      {
                          var janusUrl = $"{_janusUrl}/{sessionId}";
-                         _logger.LogInformation("🔄 Fallback to HTTP GET: {JanusUrl}", janusUrl);
+                         logger.LogInformation("🔄 Fallback to HTTP GET: {JanusUrl}", janusUrl);
 
-                         var httpResponse = await _httpClient.GetAsync(janusUrl);
+                         var httpResponse = await httpClient.GetAsync(janusUrl);
 
                          if (httpResponse.IsSuccessStatusCode)
                          {
@@ -460,19 +558,19 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
                              }
                              else
                              {
-                                 _logger.LogError("🚨 No JSEP found in HTTP GET response.");
+                                 logger.LogError("🚨 No JSEP found in HTTP GET response.");
                              }
                          }
                          else
                          {
-                             _logger.LogError("🚨 Failed to GET session info over HTTP. StatusCode: {StatusCode}", httpResponse.StatusCode);
+                             logger.LogError("🚨 Failed to GET session info over HTTP. StatusCode: {StatusCode}", httpResponse.StatusCode);
                          }
                      }
                     
                 }
                 else
                 {
-                    _logger.LogWarning("🚨 No host found in participants list.");
+                    logger.LogWarning("🚨 No host found in participants list.");
                 }
             }
         }
@@ -500,12 +598,12 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
     {
         try
         {
-            _logger.LogInformation("✅ StartPublish invoked: RoomGuid {RoomGuid}", roomGuid);
-            _logger.LogInformation("✅ clientOfferJsep: {clientOfferJsep}", sdp);
+            logger.LogInformation("✅ StartPublish invoked: RoomGuid {RoomGuid}", roomGuid);
+            logger.LogInformation("✅ clientOfferJsep: {clientOfferJsep}", sdp);
 
             if (!Rooms.TryGetValue(roomGuid, out var janusInfo))
             {
-                _logger.LogError("🚨 Room {RoomGuid} not found", roomGuid);
+                logger.LogError("🚨 Room {RoomGuid} not found", roomGuid);
                 await Clients.Caller.SendAsync("JanusError", "Room or session unavailable.");
                 return;
             }
@@ -532,18 +630,18 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
                 }
             };
 
-            var response = await _janusWsManager.SendAsync(publishMessage);
+            var response = await janusWsManager.SendAsync(publishMessage);
 
-            _logger.LogInformation("Received response from Janus: {Response}", response?.ToString());
+            logger.LogInformation("Received response from Janus: {Response}", response?.ToString());
 
             if (response?["janus"]?.ToString() == "success" || response?["janus"]?.ToString() == "ack")
             {
                 var janusUrl = $"{_janusUrl}/{janusInfo.sessionId}";
-                _logger.LogInformation("🔄 Fallback to HTTP GET: {JanusUrl}", janusUrl);
+                logger.LogInformation("🔄 Fallback to HTTP GET: {JanusUrl}", janusUrl);
 
-                var httpResponse = await _httpClient.GetAsync(janusUrl);
+                var httpResponse = await httpClient.GetAsync(janusUrl);
                     
-                _logger.LogWarning("httpResponse: {httpResponse}.", httpResponse.Content.ReadAsStringAsync().Result);
+                logger.LogWarning("httpResponse: {httpResponse}.", httpResponse.Content.ReadAsStringAsync().Result);
                     
                 if (httpResponse.IsSuccessStatusCode)
                 {
@@ -561,23 +659,23 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
                     }
                     else
                     {
-                        _logger.LogError("🚨 No JSEP found in HTTP GET response.");
+                        logger.LogError("🚨 No JSEP found in HTTP GET response.");
                     }
                 }
                 else
                 {
-                    _logger.LogError("🚨 Failed to GET session info over HTTP. StatusCode: {StatusCode}", httpResponse.StatusCode);
+                    logger.LogError("🚨 Failed to GET session info over HTTP. StatusCode: {StatusCode}", httpResponse.StatusCode);
                 }
             }
             else
             {
-                _logger.LogError("Janus rejected publish: {Response}", response);
+                logger.LogError("Janus rejected publish: {Response}", response);
                 await Clients.Caller.SendAsync("JanusError", "Publish failed at Janus.");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError("🚨 Exception during StartPublish: {ExceptionMessage}", ex.Message);
+            logger.LogError("🚨 Exception during StartPublish: {ExceptionMessage}", ex.Message);
             await Clients.Caller.SendAsync("JanusError", "Internal server error during publishing.");
         }
     }
@@ -600,13 +698,13 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
             }
         };
         
-        _logger.LogInformation("answerMessage: {response}", answerMessage);
+        logger.LogInformation("answerMessage: {response}", answerMessage);
 
-        var response = await _janusWsManager.SendAsync(answerMessage);
+        var response = await janusWsManager.SendAsync(answerMessage);
 
         if (response["janus"].ToString() == "success" || response["janus"].ToString() == "ack")
         {
-            _logger.LogInformation("SendAnswerToJanusResponse: {response}", response);
+            logger.LogInformation("SendAnswerToJanusResponse: {response}", response);
             await Clients.Caller.SendAsync("AnswerAccepted");
         }
         else
@@ -616,48 +714,56 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
     }
     public async Task KeepAlive(long sessionId)
     {
-        var keepAliveResponse = await _janusWsManager.SendAsync(new JObject
+        var keepAliveResponse = await janusWsManager.SendAsync(new JObject
         {
             ["janus"] = "keepalive",
             ["session_id"] = sessionId,
             ["transaction"] = Guid.NewGuid().ToString(),
         });
-        _logger.LogInformation("KeepAlive: {keepAliveResponse}", keepAliveResponse);
+        logger.LogInformation("KeepAlive: {keepAliveResponse}", keepAliveResponse);
     }
     public async Task SendMessage(Guid roomGuid, string message)
     {
-        // var userId = Context.GetHttpContext()?.Request.Query["userId"];
-        //
-        // if (string.IsNullOrEmpty(userId))
-        // {
-        //     await Clients.Caller.SendAsync("JanusError", "Unauthorized");
-        //     return;
-        // }
+        var userId = Context.GetHttpContext()?.Request.Query["userId"];
+        
+        if (string.IsNullOrEmpty(userId))
+        {
+            logger.LogWarning("🚫 Connection rejected due to missing token");
+            Context.Abort();
+            return;
+        }
+
+        // Register message activity
+        await RegisterRoomLog(roomGuid, userId, 1);
 
         // Broadcast message to the room
         await Clients.Group(roomGuid + HostSuffix).SendAsync("ReceiveMessage", new
         {
-            UserId = Guid.NewGuid().ToString(),
+            UserId = new Guid(userId),
             Message = message,
             CreateAt = DateTime.Now
         });
 
         await Clients.Group(roomGuid + ListenerSuffix).SendAsync("ReceiveMessage", new
         {
-            UserId = Guid.NewGuid().ToString(),
+            UserId = new Guid(userId),
             Message = message,
             CreateAt = DateTime.Now
         });
     }
     public async Task SendReaction(Guid roomGuid, int id)
     {
-        // var userId = Context.GetHttpContext()?.Request.Query["userId"];
-        //
-        // if (string.IsNullOrEmpty(userId))
-        // {
-        //     await Clients.Caller.SendAsync("JanusError", "Unauthorized");
-        //     return;
-        // }
+        var userId = Context.GetHttpContext()?.Request.Query["userId"];
+        
+        if (string.IsNullOrEmpty(userId))
+        {
+            logger.LogWarning("🚫 Connection rejected due to missing userId");
+            Context.Abort();
+            return;
+        }
+
+        // Register reaction activity
+        await RegisterRoomLog(roomGuid, userId, 2);
         
         // Broadcast message to the room
         await Clients.Group(roomGuid + HostSuffix).SendAsync("ReceiveReaction", new
@@ -689,11 +795,11 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
     {
         try
         {
-            var service = await _servicesRepository.FindByIdAsync(serviceId);
+            var service = await servicesRepository.FindByIdAsync(serviceId);
 
             if (service != null)
             {
-                var exist = await _promotionRepository
+                var exist = await promotionRepository
                     .FindSingleAsync(x => x.ServiceId.Equals(serviceId) &&
                                           x.LivestreamRoomId.Equals(roomId) &&
                                           x.IsActivated && !x.IsDeleted);
@@ -714,9 +820,9 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
                     ServiceId = serviceId,
                 };
             
-                _promotionRepository.Add(promotion);
+                promotionRepository.Add(promotion);
 
-                await _dbContext.SaveChangesAsync();
+                await dbContext.SaveChangesAsync();
                 
                 await Clients.Group(roomId + HostSuffix).SendAsync("UpdateServicePromotion", new
                 {
@@ -728,14 +834,14 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         }
         catch (Exception ex)
         {
-            _logger.LogError("Problem in add promotion for service", ex.Message);
+            logger.LogError("Problem in add promotion for service", ex.Message);
         }
     }
     public async Task DisplayService(Guid serviceId, Guid roomId, bool isDisplay)
     {
         try
         {
-            var query = _servicesRepository.FindAll(x => x.Id.Equals(serviceId));
+            var query = servicesRepository.FindAll(x => x.Id.Equals(serviceId));
 
             query = query
                 .Include(x => x.ServiceMedias)
@@ -786,7 +892,7 @@ public class LivestreamHub : Microsoft.AspNetCore.SignalR.Hub
         }
         catch (Exception ex)
         {
-            _logger.LogError("Problem in add promotion for service", ex.Message);
+            logger.LogError("Problem in add promotion for service", ex.Message);
         }
     }
 }

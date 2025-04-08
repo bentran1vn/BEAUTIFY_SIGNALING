@@ -45,7 +45,8 @@ public class LiveStreamServices : ILiveStreamServices
         var liveStreamList = await query.ToListAsync();
 
         var result = liveStreamList.Select(x => 
-            new ResponseModel.GetAllLiveStream(x.Id, x.Name, x.CreatedOnUtc, (Guid)x.ClinicId!, x.Clinic.Name)).ToList();
+            new ResponseModel.GetAllLiveStream(x.Id, x.Name, x.Description, x.Image,
+                x.CreatedOnUtc, (Guid)x.ClinicId!, x.Clinic.Name)).ToList();
         
         return Result.Success(result);
     }
