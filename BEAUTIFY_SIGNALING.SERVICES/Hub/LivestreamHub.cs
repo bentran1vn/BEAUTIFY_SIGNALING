@@ -23,7 +23,8 @@ public class LivestreamHub(
     IRepositoryBase<Promotion, Guid> promotionRepository,
     IRepositoryBase<Service, Guid> servicesRepository,
     IRepositoryBase<UserClinic, Guid> userClinicRepository,
-    IRepositoryBase<Order, Guid> orderRepository)
+    IRepositoryBase<Order, Guid> orderRepository,
+    IRepositoryBase<LiveStreamDetail, Guid> livestreamDetailRepository)
     : Microsoft.AspNetCore.SignalR.Hub
 {
     private const string HostSuffix = "_host";
@@ -397,15 +398,18 @@ public class LivestreamHub(
             .FindAll(x => x.LivestreamRoomId.Equals(roomGuid) && x.Status == "Completed")
             .CountAsync();
 
-        // Remove all listeners from the group
-        await Clients.Group(roomGuid + HostSuffix).SendAsync("LivestreamEnded", new
+        var detail = new LiveStreamDetail()
         {
             JoinCount = joinCount,
             MessageCount = messageCount,
             ReactionCount = reactionCount,
             TotalActivities = joinCount + messageCount + reactionCount,
-            TotalBooking = completedBookingCount
-        });
+            TotalBooking = completedBookingCount,
+            LivestreamRoomId = roomGuid,
+        };
+        
+        // Remove all listeners from the group
+        await Clients.Group(roomGuid + HostSuffix).SendAsync("LivestreamEnded", detail);
         
         await Clients.Group(roomGuid + ListenerSuffix).SendAsync("LivestreamEnded");
 
@@ -429,6 +433,9 @@ public class LivestreamHub(
             promotion.IsActivated = false;
             promotion.EndDate = DateTimeOffset.UtcNow;
         }
+        
+        livestreamDetailRepository.Add(detail);
+        await dbContext.SaveChangesAsync();
         
         promotionRepository.UpdateRange(promotions);
         await dbContext.SaveChangesAsync();
