@@ -9,17 +9,19 @@ namespace BEAUTIFY_SIGNALING.API.Controllers;
 public class LiveStreamController: ControllerBase
 {
     private readonly ILiveStreamServices _liveStreamServices;
+    private readonly HttpContext _httpContext;
     
-    public LiveStreamController(ILiveStreamServices liveStreamServices)
+    public LiveStreamController(ILiveStreamServices liveStreamServices, HttpContext httpContext)
     {
         _liveStreamServices = liveStreamServices;
+        _httpContext = httpContext;
     }
 
     [HttpGet("Rooms")]
-    public async Task<IResult> GetAllRooms(Guid? clinicId, HttpContext httpContext)
+    public async Task<IResult> GetAllRooms(Guid? clinicId)
 
     {
-        var role = httpContext.User.FindFirst(c => c.Type == "RoleName")?.Value;
+        var role = _httpContext.User.FindFirst(c => c.Type == "RoleName")?.Value;
         var result = await _liveStreamServices.GetAllLiveStream(clinicId, role);
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
