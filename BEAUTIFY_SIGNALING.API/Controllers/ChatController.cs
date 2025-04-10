@@ -6,28 +6,26 @@ namespace BEAUTIFY_SIGNALING.API.Controllers;
 
 [Route("api/[controller]")]
 [ApiController]
-public class LiveStreamController: ControllerBase
+public class ChatController: ControllerBase
 {
-    private readonly ILiveStreamServices _liveStreamServices;
-    
-    public LiveStreamController(ILiveStreamServices liveStreamServices)
+    private readonly IChatServices _chatServices;
+
+    public ChatController(IChatServices chatServices)
     {
-        _liveStreamServices = liveStreamServices;
+        _chatServices = chatServices;
     }
-
-    [HttpGet("Rooms")]
-    public async Task<IResult> GetAllRooms(Guid? clinicId, HttpContext httpContext)
-
+    
+    [HttpGet("Conversations/{entityId}")]
+    public async Task<IResult> GetAllConversation(Guid entityId, bool isClinic)
     {
-        var role = httpContext.User.FindFirst(c => c.Type == "RoleName")?.Value;
-        var result = await _liveStreamServices.GetAllLiveStream(clinicId, role);
+        var result = await _chatServices.GetAllConversationOfEntity(entityId, isClinic);
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
     
-    [HttpGet("Services")]
-    public async Task<IResult> GetAllServices(Guid clinicId, Guid userId, Guid roomId)
+    [HttpGet("Messages/{conversationId}")]
+    public async Task<IResult> GetAllMessages(Guid conversationId)
     {
-        var result = await _liveStreamServices.GetAllServices(clinicId, userId, roomId);
+        var result = await _chatServices.GetAllMessageOfConversation(conversationId);
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
     
@@ -58,4 +56,3 @@ public class LiveStreamController: ControllerBase
             Extensions = { { nameof(errors), errors } }
         };
 }
-
