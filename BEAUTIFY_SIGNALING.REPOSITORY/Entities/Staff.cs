@@ -40,7 +40,6 @@ public class Staff : AggregateRoot<Guid>,IAuditableEntity
 
     public virtual ICollection<UserClinic>? UserClinics { get; set; }
     // public virtual ICollection<DoctorCertificate>? DoctorCertificates { get; set; }
-    // public virtual ICollection<UserConversation>? UserConversations { get; set; }
     // public virtual ICollection<DoctorService>? DoctorServices { get; set; }
 
     public DateTimeOffset CreatedOnUtc { get; set; }

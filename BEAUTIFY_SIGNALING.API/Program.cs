@@ -4,6 +4,7 @@ using BEAUTIFY_SIGNALING.REPOSITORY.DependencyInjection.Extensions;
 using BEAUTIFY_SIGNALING.SERVICES.Abstractions;
 using BEAUTIFY_SIGNALING.SERVICES.Hub;
 using BEAUTIFY_SIGNALING.SERVICES.LiveStream;
+using BEAUTIFY_SIGNALING.SERVICES.Services.ChatServices;
 using BEAUTIFY_SIGNALING.SERVICES.Services.JwtServices;
 using BEAUTIFY_SIGNALING.SERVICES.Services.LiveStreams;
 
@@ -17,10 +18,12 @@ builder.Services.AddRepositoryPersistence();
 
 builder.Services.AddTransient<IJwtServices, JwtServices>();
 builder.Services.AddTransient<ILiveStreamServices, LiveStreamServices>();
+builder.Services.AddTransient<IChatServices, ChatServices>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddJwtAuthenticationAPI(builder.Configuration);
 
 builder.Services.AddSwaggerServices();
 
@@ -57,6 +60,7 @@ app.UseWebSockets(new WebSocketOptions
 app.UseSwagger();
 app.UseSwaggerAPI();
 app.MapHub<LivestreamHub>("api/LivestreamHub");
+app.MapHub<ChatHub>("api/ChatHub");
 
 app.UseHttpsRedirection();
 
