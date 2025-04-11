@@ -88,13 +88,13 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
             {
                 var clinic = await _clinicRepository.FindByIdAsync(senderId);
                 var user = await _userRepository.FindByIdAsync(receiverId);
-                
+
                 if (user == null)
                 {
                     await Clients.Caller.SendAsync("ReceiveMessage", "System", "User Not Found");
                     return;
                 }
-                
+
                 if (clinic == null)
                 {
                     await Clients.Caller.SendAsync("ReceiveMessage", "System", "Clinic Not Found");
@@ -105,41 +105,39 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
             {
                 var user = await _userRepository.FindByIdAsync(senderId);
                 var clinic = await _clinicRepository.FindByIdAsync(receiverId);
-                
+
                 if (user == null)
                 {
                     await Clients.Caller.SendAsync("ReceiveMessage", "System", "User Not Found");
                     return;
                 }
-                
+
                 if (clinic == null)
                 {
                     await Clients.Caller.SendAsync("ReceiveMessage", "System", "Clinic Not Found");
                     return;
                 }
             }
-            
+
             Guid conversationId;
-            
-            // Check if the conversation already exists
+
             var existingConversation = await _userConversationRepository.FindSingleAsync(x => x.UserId == senderId && x.ClinicId == receiverId && !x.IsDeleted);
-            
+
             if (existingConversation != null)
             {
                 conversationId = existingConversation.ConversationId;
             }
             else
             {
-                // Create a new conversation
                 var newConversation = new Conversation
                 {
                     Id = Guid.NewGuid(),
-                    Type = ""
+                    Type = "Direct"
                 };
-                
+
                 _conversationRepository.Add(newConversation);
                 await _dbContext.SaveChangesAsync();
-                
+
                 var userConversation = new UserConversation
                 {
                     Id = Guid.NewGuid(),
@@ -147,24 +145,24 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
                     ClinicId = receiverId,
                     ConversationId = newConversation.Id,
                 };
-                
+
                 _userConversationRepository.Add(userConversation);
                 await _dbContext.SaveChangesAsync();
-                
+
                 conversationId = newConversation.Id;
             }
 
             var message = new Message()
-            {   
+            {
                 Id = Guid.NewGuid(),
                 ConversationId = conversationId,
                 Content = content,
                 SenderId = senderId,
             };
-            
+
             _messageRepository.Add(message);
             await _dbContext.SaveChangesAsync();
-            
+
             string? connectionId = null;
             if (isClinic)
             {
@@ -172,7 +170,7 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
             }
             else
             {
-                connectionId = _userConnections.FirstOrDefault(x => x.Value == receiverId).Key;
+                connectionId = _clinicConnections.FirstOrDefault(x => x.Value == receiverId).Key;
             }
 
             if (!string.IsNullOrEmpty(connectionId))
@@ -185,20 +183,21 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
                     message.CreatedOnUtc,
                 };
 
-                Console.WriteLine($"Serialize Message: {System.Text.Json.JsonSerializer.Serialize(messageDto)}");
+                Console.WriteLine($"Serialized Message: {System.Text.Json.JsonSerializer.Serialize(messageDto)}");
 
                 await Clients.Client(connectionId).SendAsync("ReceiveMessage", senderId, messageDto);
             }
             else
             {
-                Console.WriteLine($"Reciver {receiverId} is offline.");
+                Console.WriteLine($"Receiver {receiverId} is offline.");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "An error occurred at {Time}: {Message}", DateTime.UtcNow, ex.Message);
+            _logger.LogError(ex, "An error occurred while sending a message at {Time}: {Message}", DateTime.UtcNow, ex.Message);
         }
     }
+
     
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
