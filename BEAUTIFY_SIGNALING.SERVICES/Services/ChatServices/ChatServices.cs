@@ -12,17 +12,21 @@ public class ChatServices : IChatServices
     private readonly IRepositoryBase<UserConversation, Guid> _userConversationRepository;
     private readonly IRepositoryBase<Message, Guid> _messageRepository;
     private readonly IRepositoryBase<Conversation, Guid> _conversationRepository;
+    private readonly IRepositoryBase<User, Guid> _userRepository;
+    private readonly IRepositoryBase<Clinic, Guid> _clinicRepository;
     private readonly ApplicationDbContext _dbContext;
 
-    public ChatServices(IRepositoryBase<Message, Guid> messageRepository, IRepositoryBase<UserConversation, Guid> userConversationnRepository, ApplicationDbContext dbContext, IRepositoryBase<Conversation, Guid> conversationRepository)
+    public ChatServices(IRepositoryBase<Message, Guid> messageRepository, IRepositoryBase<UserConversation, Guid> userConversationnRepository, ApplicationDbContext dbContext, IRepositoryBase<Conversation, Guid> conversationRepository, IRepositoryBase<User, Guid> userRepository, IRepositoryBase<Clinic, Guid> clinicRepository)
     {
         _messageRepository = messageRepository;
         _userConversationRepository = userConversationnRepository;
         _dbContext = dbContext;
         _conversationRepository = conversationRepository;
+        _userRepository = userRepository;
+        _clinicRepository = clinicRepository;
     }
 
-    public async Task<Result<List<Message>>> GetAllMessageOfConversation(Guid conversationId)
+    public async Task<Result<List<ResponseModel.MessageResponseModel>>> GetAllMessageOfConversation(Guid conversationId)
     {
         var query = _messageRepository.FindAll(x => x.IsDeleted == false);
         query = query.Where(x => x.ConversationId == conversationId);
@@ -30,7 +34,31 @@ public class ChatServices : IChatServices
         
         var messages = await query.ToListAsync();
         
-        return Result.Success(messages);
+        var userConversations = await _userConversationRepository.FindAll(x => x.IsDeleted == false)
+            .Where(x => x.ConversationId == conversationId)
+            .FirstOrDefaultAsync();
+        
+        if (userConversations == null)
+        {
+            return Result.Failure<List<ResponseModel.MessageResponseModel>>(new Error("404", "Conversation not found"));
+        }
+        
+        var user = await _userRepository.FindByIdAsync((Guid)userConversations.UserId!);
+        var clinic = await _clinicRepository.FindByIdAsync((Guid)userConversations.ClinicId!);
+
+        var result = messages.Select(x =>
+        {
+            // var sender = x.IsClinic ? clinic : user;
+            var senderId = x.IsClinic ? clinic?.Id : user?.Id;
+            var senderName = x.IsClinic ? clinic?.Name : user?.FullName;
+            var senderProfilePicture = x.IsClinic ? clinic?.ProfilePictureUrl : user?.ProfilePicture;
+
+            return new ResponseModel.MessageResponseModel(x.Id,
+                (Guid)x.ConversationId, (Guid)senderId, x.IsClinic, senderName, senderProfilePicture, x.Content,
+                x.CreatedOnUtc);
+        }).ToList();
+        
+        return Result.Success(result);
     }
 
     public async Task<Result> SendMessage(Guid senderId, Guid receiverId, string content, bool isClinic)
