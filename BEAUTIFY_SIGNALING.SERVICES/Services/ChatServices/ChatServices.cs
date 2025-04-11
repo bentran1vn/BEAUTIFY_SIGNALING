@@ -69,8 +69,8 @@ public class ChatServices : IChatServices
             var newUserConversation = new UserConversation
             {
                 Id = Guid.NewGuid(),
-                UserId = receiverId,
-                ClinicId = senderId,
+                UserId = isClinic ? receiverId : senderId,
+                ClinicId = isClinic ? senderId : receiverId,
                 ConversationId = newConversation.Id,
             };
             _userConversationRepository.Add(newUserConversation);
