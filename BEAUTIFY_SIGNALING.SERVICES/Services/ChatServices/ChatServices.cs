@@ -133,15 +133,15 @@ public class ChatServices : IChatServices
         
         var userConversations = await query.Select(x => new ResponseModel.ConversationResponseModel(
             x.ConversationId,
-            isClinic 
+            !isClinic 
                 ? (x.Clinic == null ? Guid.Empty : x.Clinic.Id) 
                 : (x.User == null ? Guid.Empty : x.User.Id),
-            isClinic 
+            !isClinic 
                 ? (x.Clinic == null ? "FriendName" : x.Clinic.Name) 
                 : (x.User == null ? "FriendName" : x.User.FullName),
     
             // Determine the profile picture URL based on whether it's a clinic or user
-            isClinic 
+            !isClinic 
                 ? (x.Clinic == null ? "" : x.Clinic.ProfilePictureUrl)
                 : (x.User == null ? "" : x.User.ProfilePicture)
             
