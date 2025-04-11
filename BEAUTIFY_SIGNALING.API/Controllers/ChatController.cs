@@ -32,7 +32,7 @@ public class ChatController: ControllerBase
     }
     
     [Authorize]
-    [HttpPost("")]
+    [HttpPost]
     public async Task<IResult> SendMessage([FromBody] RequestModel.SendMessageRequestModel requestModel)
     {
         var userId = User.FindFirst(c => c.Type == "UserId")?.Value;
