@@ -7,5 +7,6 @@ namespace BEAUTIFY_SIGNALING.SERVICES.Abstractions;
 public interface IChatServices
 {
     public Task<Result<List<Message>>> GetAllMessageOfConversation(Guid conversationId);
+    public Task<Result> SendMessage(Guid senderId, Guid receiverId, string content, bool isClinic);
     public Task<Result<List<ResponseModel.ConversationResponseModel>>> GetAllConversationOfEntity(Guid entityId, bool isClinic);
 }
