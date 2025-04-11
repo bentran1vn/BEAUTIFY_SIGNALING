@@ -1,5 +1,7 @@
 using BEAUTIFY_PACKAGES.BEAUTIFY_PACKAGES.CONTRACT.Abstractions.Shared;
 using BEAUTIFY_SIGNALING.SERVICES.Abstractions;
+using BEAUTIFY_SIGNALING.SERVICES.Services.ChatServices;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BEAUTIFY_SIGNALING.API.Controllers;
@@ -29,6 +31,19 @@ public class ChatController: ControllerBase
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
     
+    [Authorize]
+    [HttpPost("")]
+    public async Task<IResult> SendMessage([FromBody] RequestModel.SendMessageRequestModel requestModel)
+    {
+        var userId = User.FindFirst(c => c.Type == "UserId")?.Value;
+        if (userId == null)
+        {
+            return Results.Unauthorized();
+        }
+        var result = await _chatServices.SendMessage(new Guid(userId), requestModel.EntityId, requestModel.Content, requestModel.IsClinic);
+        return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
+    }
+
     public static IResult HandlerFailure(Result result) =>
         result switch
         {
