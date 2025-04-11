@@ -15,11 +15,11 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
     private readonly ApplicationDbContext _dbContext;
     private readonly IRepositoryBase<Clinic, Guid> _clinicRepository;
     private readonly IRepositoryBase<User, Guid> _userRepository;
-    private readonly ConcurrentDictionary<string, Guid> _userConnections = new ConcurrentDictionary<string, Guid>();
-    private readonly ConcurrentDictionary<string, Guid> _clinicConnections = new ConcurrentDictionary<string, Guid>();
+    private static readonly ConcurrentDictionary<string, Guid> UserConnections = new();
+    private static readonly ConcurrentDictionary<string, Guid> ClinicConnections = new();
     private readonly ILogger<ChatHub> _logger;
 
-    public ChatHub(IRepositoryBase<Conversation, Guid> conversationRepository, IRepositoryBase<Message, Guid> messageRepository, IRepositoryBase<UserConversation, Guid> userConversationRepository, IRepositoryBase<Staff, Guid> staffRepository, IRepositoryBase<User, Guid> userRepository, IRepositoryBase<Clinic, Guid> clinicRepository, ILogger<ChatHub> logger, ApplicationDbContext dbContext)
+    public ChatHub(IRepositoryBase<Conversation, Guid> conversationRepository, IRepositoryBase<Message, Guid> messageRepository, IRepositoryBase<UserConversation, Guid> userConversationRepository, IRepositoryBase<User, Guid> userRepository, IRepositoryBase<Clinic, Guid> clinicRepository, ILogger<ChatHub> logger, ApplicationDbContext dbContext)
     {
         _conversationRepository = conversationRepository;
         _messageRepository = messageRepository;
@@ -55,8 +55,9 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
                 var user = await _userRepository.FindByIdAsync(Guid.Parse(userId!));
                 if (user != null)
                 {
-                    _userConnections[connectionId] = user.Id;
+                    UserConnections[connectionId] = user.Id;
                 }
+                _logger.LogInformation("User connected: {UserId} at {Time}", userId, DateTime.UtcNow);
             }
             else 
             {
@@ -68,7 +69,7 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
                 var clinic = await _clinicRepository.FindByIdAsync(Guid.Parse(clinicId!));
                 if (clinic != null)
                 {
-                    _clinicConnections[connectionId] = clinic.Id;
+                    ClinicConnections[connectionId] = clinic.Id;
                 }
             }
             
@@ -121,7 +122,8 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
 
             Guid conversationId;
 
-            var existingConversation = await _userConversationRepository.FindSingleAsync(x => x.UserId == senderId && x.ClinicId == receiverId && !x.IsDeleted);
+            var existingConversation = await _userConversationRepository
+                .FindSingleAsync(x => x.UserId == (isClinic ? receiverId : senderId) && x.ClinicId == (isClinic ? senderId : receiverId) && !x.IsDeleted);
 
             if (existingConversation != null)
             {
@@ -141,8 +143,8 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
                 var userConversation = new UserConversation
                 {
                     Id = Guid.NewGuid(),
-                    UserId = senderId,
-                    ClinicId = receiverId,
+                    UserId = isClinic ? receiverId : senderId,
+                    ClinicId = isClinic ? senderId : receiverId,
                     ConversationId = newConversation.Id,
                 };
 
@@ -158,6 +160,7 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
                 ConversationId = conversationId,
                 Content = content,
                 SenderId = senderId,
+                IsClinic = isClinic,
             };
 
             _messageRepository.Add(message);
@@ -166,11 +169,11 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
             string? connectionId = null;
             if (isClinic)
             {
-                connectionId = _userConnections.FirstOrDefault(x => x.Value == receiverId).Key;
+                connectionId = UserConnections.FirstOrDefault(x => x.Value == receiverId).Key;
             }
             else
             {
-                connectionId = _clinicConnections.FirstOrDefault(x => x.Value == receiverId).Key;
+                connectionId = ClinicConnections.FirstOrDefault(x => x.Value == receiverId).Key;
             }
 
             if (!string.IsNullOrEmpty(connectionId))
@@ -181,6 +184,7 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
                     message.SenderId,
                     message.Content,
                     message.CreatedOnUtc,
+                    IsClinic = isClinic
                 };
 
                 Console.WriteLine($"Serialized Message: {System.Text.Json.JsonSerializer.Serialize(messageDto)}");
@@ -204,13 +208,13 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
         try
         {
             string connectionId = Context.ConnectionId;
-            if (_userConnections.TryGetValue(connectionId, out Guid _))
+            if (UserConnections.TryGetValue(connectionId, out Guid _))
             {
-                _userConnections.Remove(connectionId, out Guid _);
+                UserConnections.Remove(connectionId, out Guid _);
             }
-            if (_clinicConnections.TryGetValue(connectionId, out Guid _))
+            if (ClinicConnections.TryGetValue(connectionId, out Guid _))
             {
-                _clinicConnections.Remove(connectionId, out Guid _);
+                ClinicConnections.Remove(connectionId, out Guid _);
             }
             await base.OnDisconnectedAsync(exception);
         }

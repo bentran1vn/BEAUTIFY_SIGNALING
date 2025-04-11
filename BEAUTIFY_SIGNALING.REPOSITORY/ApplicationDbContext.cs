@@ -20,4 +20,17 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<UserConversation> UserConversation { get; set; }
     public DbSet<Message> Message { get; set; }
     public DbSet<Order> Order { get; set; }
+    public DbSet<LiveStreamDetail> LiveStreamDetail { get; set; }
+    
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Configure the relationship between LivestreamRoom and LiveStreamDetail
+        modelBuilder.Entity<LivestreamRoom>()
+            .HasOne(lr => lr.LiveStreamDetail)
+            .WithOne()  // Assuming one-to-one relationship, adjust if it's one-to-many
+            .HasForeignKey<LivestreamRoom>(lr => lr.LiveStreamDetailId)
+            .OnDelete(DeleteBehavior.Restrict);  // Adjust delete behavior as needed
+    }
 }
