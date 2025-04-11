@@ -30,7 +30,7 @@ public class ChatServices : IChatServices
     {
         var query = _messageRepository.FindAll(x => x.IsDeleted == false);
         query = query.Where(x => x.ConversationId == conversationId);
-        query = query.OrderByDescending(x => x.CreatedOnUtc);
+        query = query.OrderBy(x => x.CreatedOnUtc);
         
         var messages = await query.ToListAsync();
         
