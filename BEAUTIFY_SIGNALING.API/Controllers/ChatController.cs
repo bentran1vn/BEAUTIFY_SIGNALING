@@ -36,11 +36,13 @@ public class ChatController: ControllerBase
     public async Task<IResult> SendMessage([FromBody] RequestModel.SendMessageRequestModel requestModel)
     {
         var userId = User.FindFirst(c => c.Type == "UserId")?.Value;
+        var clinicId = User.FindFirst(c => c.Type == "ClinicId")?.Value;
         if (userId == null)
         {
             return Results.Unauthorized();
         }
-        var result = await _chatServices.SendMessage(new Guid(userId), requestModel.EntityId, requestModel.Content, requestModel.IsClinic);
+
+        var result = await _chatServices.SendMessage(requestModel.IsClinic ? clinicId != null ? new Guid(clinicId) : Guid.NewGuid() : new Guid(userId) , requestModel.EntityId, requestModel.Content, requestModel.IsClinic);
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
 
