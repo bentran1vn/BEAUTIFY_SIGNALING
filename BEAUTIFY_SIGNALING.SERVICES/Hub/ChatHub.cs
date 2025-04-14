@@ -184,6 +184,7 @@ public class ChatHub : Microsoft.AspNetCore.SignalR.Hub
                     message.SenderId,
                     message.Content,
                     message.CreatedOnUtc,
+                    ConversationId = conversationId,
                     IsClinic = isClinic
                 };
 
