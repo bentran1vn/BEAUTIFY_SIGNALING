@@ -24,6 +24,7 @@ public class LivestreamHub(
     IRepositoryBase<Service, Guid> servicesRepository,
     IRepositoryBase<UserClinic, Guid> userClinicRepository,
     IRepositoryBase<Order, Guid> orderRepository,
+    IRepositoryBase<Clinic, Guid> clinicRepository,
     IRepositoryBase<LiveStreamDetail, Guid> livestreamDetailRepository)
     : Microsoft.AspNetCore.SignalR.Hub
 {
@@ -153,6 +154,15 @@ public class LivestreamHub(
         {
             logger.LogWarning("🚫 Connection rejected due to missing token");
             Context.Abort();
+            return;
+        }
+        
+        var clinic = await clinicRepository.FindByIdAsync(new Guid(clinicId!));
+
+        if (clinic == null || clinic.AdditionLivestreams <= 0)
+        {
+            logger.LogWarning("🚫 Connection rejected due to clinic not found or no available livestreams");
+            await Clients.Caller.SendAsync("SystemError", "No Quota for Livestream, buy more quota !");
             return;
         }
         
@@ -308,6 +318,9 @@ public class LivestreamHub(
             SessionId = sessionId,
             HandleId = handleId
         };
+        
+        clinic.AdditionLivestreams -= 1;
+        clinicRepository.Update(clinic);
         
         logger.LogInformation("HostCreateRoom: {HostCreateRoomResponse}", hostCreateRoomResponse);
         
