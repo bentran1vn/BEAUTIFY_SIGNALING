@@ -19,7 +19,7 @@ public class LiveStreamController: ControllerBase
     public async Task<IResult> GetAllRooms(Guid? clinicId, int pageIndex = 1, int pageSize = 10)
     {
         var role = User.FindFirst(c => c.Type == "RoleName")?.Value;
-        var result = await _liveStreamServices.GetAllLiveStream(clinicId, role, 1, 10);
+        var result = await _liveStreamServices.GetAllLiveStream(clinicId, role, pageSize, pageIndex);
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
     
