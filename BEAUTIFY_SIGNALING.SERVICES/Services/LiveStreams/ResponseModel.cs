@@ -12,6 +12,14 @@ public class ResponseModel
         string ClinicName
     );
     
+    public record GetLiveStreamDetail(
+        int JoinCount, 
+        int MessageCount,
+        int ReactionCount,
+        int TotalActivities,
+        int TotalBooking
+    );
+    
     public record GetAllService(
         Guid Id,
         string Name,

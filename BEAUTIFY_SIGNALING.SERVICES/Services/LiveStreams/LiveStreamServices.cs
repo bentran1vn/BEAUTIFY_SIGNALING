@@ -10,19 +10,21 @@ namespace BEAUTIFY_SIGNALING.SERVICES.Services.LiveStreams;
 public class LiveStreamServices : ILiveStreamServices
 {
     private readonly IRepositoryBase<LivestreamRoom, Guid> _liveStreamRepository;
+    private readonly IRepositoryBase<LiveStreamDetail, Guid> _liveStreamDetailRepository;
     private readonly IRepositoryBase<UserClinic, Guid> _userClinicRepository;
     private readonly IRepositoryBase<ClinicService, Guid> _clinicServiceRepository;
     private readonly IRepositoryBase<Clinic, Guid> _clinicRepository;
 
-    public LiveStreamServices(IRepositoryBase<LivestreamRoom, Guid> liveStreamRepository, IRepositoryBase<UserClinic, Guid> userClinicRepository, IRepositoryBase<ClinicService, Guid> clinicServiceRepository, IRepositoryBase<Clinic, Guid> clinicRepository)
+    public LiveStreamServices(IRepositoryBase<LivestreamRoom, Guid> liveStreamRepository, IRepositoryBase<UserClinic, Guid> userClinicRepository, IRepositoryBase<ClinicService, Guid> clinicServiceRepository, IRepositoryBase<Clinic, Guid> clinicRepository, IRepositoryBase<LiveStreamDetail, Guid> liveStreamDetailRepository)
     {
         _liveStreamRepository = liveStreamRepository;
         _userClinicRepository = userClinicRepository;
         _clinicServiceRepository = clinicServiceRepository;
         _clinicRepository = clinicRepository;
+        _liveStreamDetailRepository = liveStreamDetailRepository;
     }
 
-    public async Task<Result<List<ResponseModel.GetAllLiveStream>>> GetAllLiveStream(Guid? clinicId, string? role)
+    public async Task<Result<PagedResult<ResponseModel.GetAllLiveStream>>> GetAllLiveStream(Guid? clinicId, string? role, int pageSize, int pageIndex)
     {
         var query = _liveStreamRepository.FindAll(x => x.IsDeleted == false);
 
@@ -42,14 +44,43 @@ public class LiveStreamServices : ILiveStreamServices
             query = query.Where(x => x.EndDate == null && x.Status == "live");
         }
         
-        var liveStreamList = await query.ToListAsync();
+        var applyRequest = await PagedResult<LivestreamRoom>
+            .CreateAsync(query, pageIndex, pageSize);
+        
+        // var liveStreamList = await query.ToListAsync();
 
-        var result = liveStreamList.Select(x => 
+        var paging = applyRequest.Items.Select(x => 
             new ResponseModel.GetAllLiveStream(x.Id, x.Name, x.Description, x.Image,
                 x.CreatedOnUtc, (Guid)x.ClinicId!, x.Clinic.Name)).ToList();
+
+        var result = PagedResult<ResponseModel.GetAllLiveStream>.Create(paging, applyRequest.PageIndex,
+            applyRequest.PageSize, applyRequest.TotalCount);
         
         return Result.Success(result);
     }
+
+    public async Task<Result<ResponseModel.GetLiveStreamDetail>> GetLiveStreamId(Guid roomId, string? role)
+    {
+        var room = await _liveStreamRepository.FindByIdAsync(roomId);
+        
+        if(room == null)
+            return Result.Failure<ResponseModel.GetLiveStreamDetail>(new Error("404", "Room not found"));
+        
+        if (role == null || !role.Equals("Clinic Admin"))
+        {
+            return Result.Failure<ResponseModel.GetLiveStreamDetail>(new Error("403", "Unauthorized"));
+        }
+
+        var detail = await _liveStreamDetailRepository.FindSingleAsync(x => x.LivestreamRoomId.Equals(roomId));
+
+        var result = new ResponseModel.GetLiveStreamDetail(
+            detail?.JoinCount ?? 0, detail?.MessageCount ?? 0,
+            detail?.ReactionCount ?? 0, detail?.TotalActivities ?? 0,
+            detail?.TotalBooking ?? 0);
+        
+        return Result.Success(result);
+    }
+
     public async Task<Result<List<ResponseModel.GetAllService>>> GetAllServices(Guid clinicId, Guid staffId, Guid roomId)
     {
         var clinics = await _clinicRepository.FindAll(x => x.ParentId.Equals(clinicId) || x.Id.Equals(clinicId)).ToListAsync();

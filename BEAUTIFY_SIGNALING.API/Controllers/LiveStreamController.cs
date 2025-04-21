@@ -16,11 +16,18 @@ public class LiveStreamController: ControllerBase
     }
 
     [HttpGet("Rooms")]
-    public async Task<IResult> GetAllRooms(Guid? clinicId)
-
+    public async Task<IResult> GetAllRooms(Guid? clinicId, int pageIndex = 1, int pageSize = 10)
     {
         var role = User.FindFirst(c => c.Type == "RoleName")?.Value;
-        var result = await _liveStreamServices.GetAllLiveStream(clinicId, role);
+        var result = await _liveStreamServices.GetAllLiveStream(clinicId, role, 1, 10);
+        return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
+    }
+    
+    [HttpGet("Rooms/{id}")]
+    public async Task<IResult> GetAllRooms(Guid id)
+    {
+        var role = User.FindFirst(c => c.Type == "RoleName")?.Value;
+        var result = await _liveStreamServices.GetLiveStreamId(id, role);
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
     
