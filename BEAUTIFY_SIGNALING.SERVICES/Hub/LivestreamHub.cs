@@ -817,7 +817,7 @@ public class LivestreamHub(
             Message = message
         });
     }
-    public async Task SetPromotionService(Guid serviceId, Guid roomId, int percent)
+    public async Task SetPromotionService(Guid serviceId, Guid roomId, double percent)
     {
         try
         {
@@ -841,7 +841,7 @@ public class LivestreamHub(
                     Name = $"LiveStream-{DateTimeOffset.UtcNow}",
                     StartDate = DateTimeOffset.UtcNow,
                     LivestreamRoomId = roomId,
-                    DiscountPercent = percent,
+                    DiscountPercent = percent / 100,
                     IsActivated = true,
                     ServiceId = serviceId,
                 };
