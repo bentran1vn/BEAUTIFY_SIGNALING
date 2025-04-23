@@ -38,7 +38,11 @@ public class LivestreamHub(
     private static readonly ConcurrentDictionary<Guid, HashSet<string>> RoomListeners = new();
     private static readonly ConcurrentDictionary<string, HashSet<Guid>> UserRooms = new();
     private static readonly ConcurrentDictionary<Guid, ConcurrentQueue<Activity>> RoomLogs = new();
-
+    
+    
+    /// <summary>
+    /// Activity model for logging
+    /// </summary>
     private class Activity
     {
         public string? UserId { get; set; }
@@ -320,7 +324,9 @@ public class LivestreamHub(
         };
         
         clinic.AdditionLivestreams -= 1;
-        clinicRepository.Update(clinic);
+        
+        await dbContext.SaveChangesAsync();
+        
         
         logger.LogInformation("HostCreateRoom: {HostCreateRoomResponse}", hostCreateRoomResponse);
         
