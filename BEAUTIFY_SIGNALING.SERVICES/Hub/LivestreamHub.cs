@@ -853,7 +853,7 @@ public class LivestreamHub(
                 await Clients.Group(roomId + HostSuffix).SendAsync("UpdateServicePromotion", new
                 {
                     Id = serviceId,
-                    DiscountLivePercent = promotion.DiscountPercent,
+                    DiscountLivePercent = promotion.DiscountPercent * 100,
                     CreateAt = DateTimeOffset.UtcNow
                 });
             }
