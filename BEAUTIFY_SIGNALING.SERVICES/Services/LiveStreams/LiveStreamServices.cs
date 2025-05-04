@@ -84,9 +84,50 @@ public class LiveStreamServices : ILiveStreamServices
         
         if (room.LiveStreamLogs != null)
         {
-            logs = room.LiveStreamLogs.Select(x => new ResponseModel.LivestreamLog(
-                x.Id, x.UserId, x.User?.Email, x.User?.FullName, x.User?.PhoneNumber, 
-                x.User?.ProfilePicture, x.ActivityType , x.Message, x.CreatedOnUtc)).ToList();
+            logs = room.LiveStreamLogs.Select(x =>
+            {
+                string type;
+                string? iconMessage = null;
+                switch (x.ActivityType)
+                {
+                    case 0:
+                        type = "Join";
+                        break;
+                    case 1:
+                        type = "Message";
+                        break;
+                    case 2:
+                        type = "Reaction";
+                        switch (int.Parse(x.Message!))
+                        {
+                            case 1:
+                                iconMessage = "User send 👍, Looks great!";
+                                break;
+                            case 2:
+                                iconMessage = "User send ❤️, Love it!";
+                                break;
+                            case 3:
+                                iconMessage = "User sends 🔥, That's fire!";
+                                break;
+                            case 4:
+                                iconMessage = "User send 👏, Amazing work!";
+                                break;
+                            case 5:
+                                iconMessage = "User send 😍, Beautiful!";
+                                break;
+                            default:
+                                iconMessage = "User send 👍, Looks great!";
+                                break;
+                        }
+                        break;
+                    default:
+                        type = "Unknown";
+                        break;
+                }
+                return new ResponseModel.LivestreamLog(
+                    x.Id, x.UserId, x.User?.Email, x.User?.FullName, x.User?.PhoneNumber,
+                    x.User?.ProfilePicture, type, x.ActivityType == 2 ? iconMessage : x.Message, x.CreatedOnUtc);
+            }).ToList();
         }
 
         var result = new ResponseModel.GetLiveStreamDetail(
