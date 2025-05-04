@@ -34,8 +34,12 @@ public sealed class UpdateAuditableEntitiesInterceptor
         {
             if (entityEntry.State == EntityState.Added)
             {
-                entityEntry.Property(a => a.CreatedOnUtc).CurrentValue
-                    = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, vietnamTimeZone);
+                // Only set CreatedOnUtc if it's not already set
+                if (entityEntry.Property(a => a.CreatedOnUtc)?.CurrentValue == null)
+                {
+                    entityEntry.Property(a => a.CreatedOnUtc).CurrentValue
+                        = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, vietnamTimeZone);
+                }
             }
 
             if (entityEntry.State == EntityState.Modified)

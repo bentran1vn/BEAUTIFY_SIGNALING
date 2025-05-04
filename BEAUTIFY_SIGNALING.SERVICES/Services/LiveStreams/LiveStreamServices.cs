@@ -61,7 +61,11 @@ public class LiveStreamServices : ILiveStreamServices
 
     public async Task<Result<ResponseModel.GetLiveStreamDetail>> GetLiveStreamId(Guid roomId, string? role)
     {
-        var room = await _liveStreamRepository.FindByIdAsync(roomId);
+        var room = await _liveStreamRepository.FindAll(x => x.Id.Equals(roomId))
+            .Include(x => x.LiveStreamDetail)
+            .Include(x => x!.LiveStreamLogs)
+            .ThenInclude(x => x.User)
+            .FirstOrDefaultAsync(new CancellationToken());
         
         if(room == null)
             return Result.Failure<ResponseModel.GetLiveStreamDetail>(new Error("404", "Room not found"));
@@ -71,12 +75,24 @@ public class LiveStreamServices : ILiveStreamServices
             return Result.Failure<ResponseModel.GetLiveStreamDetail>(new Error("403", "Unauthorized"));
         }
 
-        var detail = await _liveStreamDetailRepository.FindSingleAsync(x => x.LivestreamRoomId.Equals(roomId));
+        var detail = room.LiveStreamDetail;
+        
+        if (detail == null)
+            return Result.Failure<ResponseModel.GetLiveStreamDetail>(new Error("404", "Room detail not found"));
+
+        List<ResponseModel.LivestreamLog> logs = new ();
+        
+        if (room.LiveStreamLogs != null)
+        {
+            logs = room.LiveStreamLogs.Select(x => new ResponseModel.LivestreamLog(
+                x.Id, x.UserId, x.User?.Email, x.User?.FullName, x.User?.PhoneNumber, 
+                x.User?.ProfilePicture, x.ActivityType , x.Message, x.CreatedOnUtc)).ToList();
+        }
 
         var result = new ResponseModel.GetLiveStreamDetail(
             detail?.JoinCount ?? 0, detail?.MessageCount ?? 0,
             detail?.ReactionCount ?? 0, detail?.TotalActivities ?? 0,
-            detail?.TotalBooking ?? 0);
+            detail?.TotalBooking ?? 0, logs);
         
         return Result.Success(result);
     }

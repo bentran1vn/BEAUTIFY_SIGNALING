@@ -4,7 +4,7 @@ using BEAUTIFY_PACKAGES.BEAUTIFY_PACKAGES.DOMAIN.Abstractions.Repositories;
 using BEAUTIFY_SIGNALING.REPOSITORY;
 using BEAUTIFY_SIGNALING.REPOSITORY.Entities;
 using BEAUTIFY_SIGNALING.SERVICES.Abstractions;
-using BEAUTIFY_SIGNALING.SERVICES.LiveStream;
+using BEAUTIFY_SIGNALING.SERVICES.Socket;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -25,7 +25,8 @@ public class LivestreamHub(
     IRepositoryBase<UserClinic, Guid> userClinicRepository,
     IRepositoryBase<Order, Guid> orderRepository,
     IRepositoryBase<Clinic, Guid> clinicRepository,
-    IRepositoryBase<LiveStreamDetail, Guid> livestreamDetailRepository)
+    IRepositoryBase<LiveStreamDetail, Guid> livestreamDetailRepository,
+    IRepositoryBase<LiveStreamLog, Guid> liveStreamLogRepository)
     : Microsoft.AspNetCore.SignalR.Hub
 {
     private const string HostSuffix = "_host";
@@ -50,6 +51,7 @@ public class LivestreamHub(
         // 0: Join Stream
         // 1: Send Message
         // 2: Reaction
+        public string? Message { get; set; }
         public DateTimeOffset Timestamp { get; set; }
     }
     public override async Task OnConnectedAsync()
@@ -379,37 +381,44 @@ public class LivestreamHub(
         Rooms.TryRemove(roomGuid, out _);
         RoomListeners.TryRemove(roomGuid, out _);
 
-        // Step 3: Remove from user groups
+        // Step 3: User group management - Optimize to reduce collections manipulation
         if (UserRooms.TryGetValue(Context.ConnectionId, out var userRooms))
         {
-            userRooms.Remove(roomGuid);
-            if (userRooms.Count == 0)
+            if (userRooms.Count == 1 && userRooms.Contains(roomGuid))
                 UserRooms.TryRemove(Context.ConnectionId, out _);
+            else
+                userRooms.Remove(roomGuid);
         }
         
-        var joinCount = 0;
-        var messageCount = 0;
-        var reactionCount = 0;
-        var completedBooking = 0;
+        var (joinCount, messageCount, reactionCount) = (0, 0, 0);
+        var liveStreamLogs = new List<LiveStreamLog>();
 
-        var check = RoomLogs.TryGetValue(roomGuid, out var totalLogs);
-        
-        if (check && totalLogs != null)
+        if (RoomLogs.TryGetValue(roomGuid, out var totalLogs) && totalLogs != null)
         {
+            // Pre-size the collection to avoid resizing
+            liveStreamLogs = new List<LiveStreamLog>(totalLogs.Count);
+        
             foreach (var activity in totalLogs)
             {
+                var log = new LiveStreamLog
+                {
+                    Id = Guid.NewGuid(),
+                    LivestreamRoomId = roomGuid,
+                    UserId = activity.UserId != null ? new Guid(activity.UserId) : null,
+                    ActivityType = activity.ActivityType,
+                    Message = activity.Message,
+                    CreatedOnUtc = activity.Timestamp
+                };
+            
+                // Use switch expression for more concise counting
                 switch (activity.ActivityType)
                 {
-                    case 0: // Join Stream
-                        joinCount++;
-                        break;
-                    case 1: // Send Message
-                        messageCount++;
-                        break;
-                    case 2: // Reaction
-                        reactionCount++;
-                        break;
+                    case 0: joinCount++; break;
+                    case 1: messageCount++; break;
+                    case 2: reactionCount++; break;
                 }
+            
+                liveStreamLogs.Add(log);
             }
         }
         
@@ -433,6 +442,9 @@ public class LivestreamHub(
         await Clients.Group(roomGuid + ListenerSuffix).SendAsync("LivestreamEnded");
 
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomGuid + HostSuffix);
+        
+        livestreamDetailRepository.Add(detail);
+        await dbContext.SaveChangesAsync();
 
         // Step 4: Update the database to mark the livestream as ended
         var room = await livestreamRoomRepository.FindByIdAsync(roomGuid);
@@ -440,6 +452,7 @@ public class LivestreamHub(
         {
             room.Status = "unlive";
             room.EndDate = TimeOnly.FromDateTime(DateTime.UtcNow);
+            room.LiveStreamDetailId = detail.Id;
             await dbContext.SaveChangesAsync();
         }
 
@@ -453,15 +466,15 @@ public class LivestreamHub(
             promotion.EndDate = DateTimeOffset.UtcNow;
         }
         
-        livestreamDetailRepository.Add(detail);
+        promotionRepository.UpdateRange(promotions);
         await dbContext.SaveChangesAsync();
         
-        promotionRepository.UpdateRange(promotions);
+        liveStreamLogRepository.AddRange(liveStreamLogs);
         await dbContext.SaveChangesAsync();
 
         logger.LogInformation("✅ Livestream for Room {RoomGuid} has ended", roomGuid);
     }
-    private async Task RegisterRoomLog(Guid roomGuid, string userId, int activityType)
+    private async Task RegisterRoomLog(Guid roomGuid, string? userId, int activityType, string? message = null)
     {
         if (!RoomLogs.TryGetValue(roomGuid, out var logs))
         {
@@ -473,6 +486,7 @@ public class LivestreamHub(
         {
             UserId = userId,
             ActivityType = activityType,
+            Message = message,
             Timestamp = DateTimeOffset.UtcNow
         });
     }
@@ -760,7 +774,7 @@ public class LivestreamHub(
         }
 
         // Register message activity
-        await RegisterRoomLog(roomGuid, userId, 1);
+        await RegisterRoomLog(roomGuid, userId, 1, message);
 
         // Broadcast message to the room
         await Clients.Group(roomGuid + HostSuffix).SendAsync("ReceiveMessage", new
@@ -789,7 +803,7 @@ public class LivestreamHub(
         }
 
         // Register reaction activity
-        await RegisterRoomLog(roomGuid, userId, 2);
+        await RegisterRoomLog(roomGuid, userId, 2, id.ToString());
         
         // Broadcast message to the room
         await Clients.Group(roomGuid + HostSuffix).SendAsync("ReceiveReaction", new

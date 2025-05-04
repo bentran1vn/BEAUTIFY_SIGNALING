@@ -3,7 +3,7 @@ using System.Net.WebSockets;
 using Newtonsoft.Json.Linq;
 using Websocket.Client;
 
-namespace BEAUTIFY_SIGNALING.SERVICES.LiveStream;
+namespace BEAUTIFY_SIGNALING.SERVICES.Socket;
 
 public class JanusWebSocketManager : IDisposable
 {
