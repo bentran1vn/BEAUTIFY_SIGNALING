@@ -59,7 +59,7 @@ public class LiveStreamServices : ILiveStreamServices
         return Result.Success(result);
     }
 
-    public async Task<Result<ResponseModel.GetLiveStreamDetail>> GetLiveStreamId(Guid roomId, string? role, int? type, int pageSize, int pageIndex)
+    public async Task<Result<ResponseModel.GetLiveStreamDetail>> GetLiveStreamId(Guid roomId, string? role, int? type, int pageIndex, int pageSize)
     {
         var room = await _liveStreamRepository.FindAll(x => x.Id.Equals(roomId))
             .Include(x => x.LiveStreamDetail)
