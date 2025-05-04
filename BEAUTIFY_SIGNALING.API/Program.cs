@@ -3,10 +3,10 @@ using BEAUTIFY_SIGNALING.API.Extensions;
 using BEAUTIFY_SIGNALING.REPOSITORY.DependencyInjection.Extensions;
 using BEAUTIFY_SIGNALING.SERVICES.Abstractions;
 using BEAUTIFY_SIGNALING.SERVICES.Hub;
-using BEAUTIFY_SIGNALING.SERVICES.LiveStream;
 using BEAUTIFY_SIGNALING.SERVICES.Services.ChatServices;
 using BEAUTIFY_SIGNALING.SERVICES.Services.JwtServices;
 using BEAUTIFY_SIGNALING.SERVICES.Services.LiveStreams;
+using BEAUTIFY_SIGNALING.SERVICES.Socket;
 
 var builder = WebApplication.CreateBuilder(args);
 

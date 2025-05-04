@@ -20,6 +20,7 @@ public class LivestreamRoom : AggregateRoot<Guid>, IAuditableEntity
     public virtual Clinic Clinic { get; set; }
     public Guid? LiveStreamDetailId { get; set; }
     public virtual LiveStreamDetail? LiveStreamDetail { get; set; }
+    public virtual ICollection<LiveStreamLog>? LiveStreamLogs { get; set; } = new List<LiveStreamLog>();
     public DateTimeOffset CreatedOnUtc { get; set; }
     public DateTimeOffset? ModifiedOnUtc { get; set; }
     // public virtual ICollection<Promotion>? Promotions { get; set; }
