@@ -10,18 +10,18 @@ namespace BEAUTIFY_SIGNALING.SERVICES.Services.LiveStreams;
 public class LiveStreamServices : ILiveStreamServices
 {
     private readonly IRepositoryBase<LivestreamRoom, Guid> _liveStreamRepository;
-    private readonly IRepositoryBase<LiveStreamDetail, Guid> _liveStreamDetailRepository;
+    private readonly IRepositoryBase<LiveStreamLog, Guid> _liveStreamLogRepository;
     private readonly IRepositoryBase<UserClinic, Guid> _userClinicRepository;
     private readonly IRepositoryBase<ClinicService, Guid> _clinicServiceRepository;
     private readonly IRepositoryBase<Clinic, Guid> _clinicRepository;
 
-    public LiveStreamServices(IRepositoryBase<LivestreamRoom, Guid> liveStreamRepository, IRepositoryBase<UserClinic, Guid> userClinicRepository, IRepositoryBase<ClinicService, Guid> clinicServiceRepository, IRepositoryBase<Clinic, Guid> clinicRepository, IRepositoryBase<LiveStreamDetail, Guid> liveStreamDetailRepository)
+    public LiveStreamServices(IRepositoryBase<LivestreamRoom, Guid> liveStreamRepository, IRepositoryBase<UserClinic, Guid> userClinicRepository, IRepositoryBase<ClinicService, Guid> clinicServiceRepository, IRepositoryBase<Clinic, Guid> clinicRepository, IRepositoryBase<LiveStreamLog, Guid> liveStreamLogRepository)
     {
         _liveStreamRepository = liveStreamRepository;
         _userClinicRepository = userClinicRepository;
         _clinicServiceRepository = clinicServiceRepository;
         _clinicRepository = clinicRepository;
-        _liveStreamDetailRepository = liveStreamDetailRepository;
+        _liveStreamLogRepository = liveStreamLogRepository;
     }
 
     public async Task<Result<PagedResult<ResponseModel.GetAllLiveStream>>> GetAllLiveStream(Guid? clinicId, string? role, int pageSize, int pageIndex)
@@ -59,12 +59,10 @@ public class LiveStreamServices : ILiveStreamServices
         return Result.Success(result);
     }
 
-    public async Task<Result<ResponseModel.GetLiveStreamDetail>> GetLiveStreamId(Guid roomId, string? role)
+    public async Task<Result<ResponseModel.GetLiveStreamDetail>> GetLiveStreamId(Guid roomId, string? role, int? type, int pageSize, int pageIndex)
     {
         var room = await _liveStreamRepository.FindAll(x => x.Id.Equals(roomId))
             .Include(x => x.LiveStreamDetail)
-            .Include(x => x!.LiveStreamLogs)
-            .ThenInclude(x => x.User)
             .FirstOrDefaultAsync(new CancellationToken());
         
         if(room == null)
@@ -80,60 +78,75 @@ public class LiveStreamServices : ILiveStreamServices
         if (detail == null)
             return Result.Failure<ResponseModel.GetLiveStreamDetail>(new Error("404", "Room detail not found"));
 
+        var query = _liveStreamLogRepository
+            .FindAll(x => x.LivestreamRoomId.Equals(roomId) && x.IsDeleted == false);
+        
+        query = query.Include(x => x.User);
+        
+        query = type switch
+        {
+            0 => query.Where(x => x.ActivityType == 0),
+            1 => query.Where(x => x.ActivityType == 1),
+            2 => query.Where(x => x.ActivityType == 2),
+            _ => query
+        };
+        
+        var rawLogs = await PagedResult<LiveStreamLog>.CreateAsync(query, pageIndex, pageSize);
+
         List<ResponseModel.LivestreamLog> logs = new ();
         
-        if (room.LiveStreamLogs != null)
+        logs = rawLogs.Items.Select(x =>
         {
-            logs = room.LiveStreamLogs.Select(x =>
+            string type;
+            string? iconMessage = null;
+            switch (x.ActivityType)
             {
-                string type;
-                string? iconMessage = null;
-                switch (x.ActivityType)
-                {
-                    case 0:
-                        type = "Join";
-                        break;
-                    case 1:
-                        type = "Message";
-                        break;
-                    case 2:
-                        type = "Reaction";
-                        switch (int.Parse(x.Message!))
-                        {
-                            case 1:
-                                iconMessage = "User send 👍, Looks great!";
-                                break;
-                            case 2:
-                                iconMessage = "User send ❤️, Love it!";
-                                break;
-                            case 3:
-                                iconMessage = "User sends 🔥, That's fire!";
-                                break;
-                            case 4:
-                                iconMessage = "User send 👏, Amazing work!";
-                                break;
-                            case 5:
-                                iconMessage = "User send 😍, Beautiful!";
-                                break;
-                            default:
-                                iconMessage = "User send 👍, Looks great!";
-                                break;
-                        }
-                        break;
-                    default:
-                        type = "Unknown";
-                        break;
-                }
-                return new ResponseModel.LivestreamLog(
-                    x.Id, x.UserId, x.User?.Email, x.User?.FullName, x.User?.PhoneNumber,
-                    x.User?.ProfilePicture, type, x.ActivityType == 2 ? iconMessage : x.Message, x.CreatedOnUtc);
-            }).ToList();
-        }
+                case 0:
+                    type = "Join";
+                    break;
+                case 1:
+                    type = "Message";
+                    break;
+                case 2:
+                    type = "Reaction";
+                    switch (int.Parse(x.Message!))
+                    {
+                        case 1:
+                            iconMessage = "User send 👍, Looks great!";
+                            break;
+                        case 2:
+                            iconMessage = "User send ❤️, Love it!";
+                            break;
+                        case 3:
+                            iconMessage = "User sends 🔥, That's fire!";
+                            break;
+                        case 4:
+                            iconMessage = "User send 👏, Amazing work!";
+                            break;
+                        case 5:
+                            iconMessage = "User send 😍, Beautiful!";
+                            break;
+                        default:
+                            iconMessage = "User send 👍, Looks great!";
+                            break;
+                    }
+                    break;
+                default:
+                    type = "Unknown";
+                    break;
+            }
+            return new ResponseModel.LivestreamLog(
+                x.Id, x.UserId, x.User?.Email, x.User?.FullName, x.User?.PhoneNumber,
+                x.User?.ProfilePicture, type, x.ActivityType == 2 ? iconMessage : x.Message, x.CreatedOnUtc);
+        }).ToList();
+        
+        var paging = new PagedResult<ResponseModel.LivestreamLog>(logs, rawLogs.PageIndex,
+            rawLogs.PageSize, rawLogs.TotalCount);
 
         var result = new ResponseModel.GetLiveStreamDetail(
             detail?.JoinCount ?? 0, detail?.MessageCount ?? 0,
             detail?.ReactionCount ?? 0, detail?.TotalActivities ?? 0,
-            detail?.TotalBooking ?? 0, logs);
+            detail?.TotalBooking ?? 0, paging);
         
         return Result.Success(result);
     }

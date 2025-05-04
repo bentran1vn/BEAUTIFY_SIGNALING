@@ -24,10 +24,10 @@ public class LiveStreamController: ControllerBase
     }
     
     [HttpGet("Rooms/{id}")]
-    public async Task<IResult> GetAllRooms(Guid id)
+    public async Task<IResult> GetAllRooms(Guid id, int? type ,int pageIndex = 1, int pageSize = 10)
     {
         var role = User.FindFirst(c => c.Type == "RoleName")?.Value;
-        var result = await _liveStreamServices.GetLiveStreamId(id, role);
+        var result = await _liveStreamServices.GetLiveStreamId(id, role, type, pageIndex, pageSize);
         return result.IsFailure ? HandlerFailure(result) : Results.Ok(result);
     }
     
