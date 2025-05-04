@@ -1,3 +1,5 @@
+using BEAUTIFY_PACKAGES.BEAUTIFY_PACKAGES.CONTRACT.Abstractions.Shared;
+
 namespace BEAUTIFY_SIGNALING.SERVICES.Services.LiveStreams;
 
 public class ResponseModel
@@ -18,7 +20,7 @@ public class ResponseModel
         int ReactionCount,
         int TotalActivities,
         int TotalBooking,
-        List<LivestreamLog> Logs);
+        PagedResult<LivestreamLog> Logs);
 
     public record LivestreamLog(
         Guid Id, Guid? UserId, string? Email, string? FullName,
