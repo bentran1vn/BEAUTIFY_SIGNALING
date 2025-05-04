@@ -22,7 +22,7 @@ public class ResponseModel
 
     public record LivestreamLog(
         Guid Id, Guid? UserId, string? Email, string? FullName,
-        string? Phone, string? ProfilePictureUrl, int LogType,
+        string? Phone, string? ProfilePictureUrl, string LogType,
         string? Message, DateTimeOffset CreatedOnUtc);
     
     public record GetAllService(
