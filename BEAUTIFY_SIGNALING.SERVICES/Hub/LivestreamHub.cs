@@ -150,6 +150,7 @@ public class LivestreamHub(
         public required string Name { get; set; }
         public required string Description { get; set; }
         public required string Image { get; set; }
+        public required Guid EventId { get; set; }
     }
     public async Task HostCreateRoom(RoomData data)
     {
@@ -312,6 +313,7 @@ public class LivestreamHub(
             Date = DateOnly.FromDateTime(DateTime.UtcNow),
             StartDate = TimeOnly.FromDateTime(DateTime.UtcNow),
             Status = "live",
+            EventId = data.EventId
         };
         
         livestreamRoomRepository.Add(liveStreamRoom);
@@ -328,7 +330,6 @@ public class LivestreamHub(
         clinic.AdditionLivestreams -= 1;
         
         await dbContext.SaveChangesAsync();
-        
         
         logger.LogInformation("HostCreateRoom: {HostCreateRoomResponse}", hostCreateRoomResponse);
         
