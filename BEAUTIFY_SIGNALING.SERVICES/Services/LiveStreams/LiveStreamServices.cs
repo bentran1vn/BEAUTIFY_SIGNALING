@@ -49,9 +49,15 @@ public class LiveStreamServices : ILiveStreamServices
         
         // var liveStreamList = await query.ToListAsync();
 
-        var paging = applyRequest.Items.Select(x => 
-            new ResponseModel.GetAllLiveStream(x.Id, x.Name, x.Description, x.Image,
-                x.CreatedOnUtc, (Guid)x.ClinicId!, x.Clinic.Name)).ToList();
+        var paging = applyRequest.Items.Select(x =>
+        {
+            var dateTime = x.Date!.Value.ToDateTime(x.StartDate!.Value);
+
+            var dateResult = new DateTimeOffset(dateTime, TimeZoneInfo.Local.GetUtcOffset(dateTime));
+            
+            return new ResponseModel.GetAllLiveStream(x.Id, x.Name, x.Description, x.Image,
+                dateResult, (Guid)x.ClinicId!, x.Clinic.Name);
+        }).ToList();
 
         var result = PagedResult<ResponseModel.GetAllLiveStream>.Create(paging, applyRequest.PageIndex,
             applyRequest.PageSize, applyRequest.TotalCount);
