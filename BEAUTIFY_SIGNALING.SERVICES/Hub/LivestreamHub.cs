@@ -424,7 +424,7 @@ public class LivestreamHub(
         }
         
         var completedBookingCount = await orderRepository
-            .FindAll(x => x.LivestreamRoomId.Equals(roomGuid) && x.Status == "Completed")
+            .FindAll(x => x.LivestreamRoomId.Equals(roomGuid) && x.Status == "Pending")
             .CountAsync();
 
         var detail = new LiveStreamDetail()
