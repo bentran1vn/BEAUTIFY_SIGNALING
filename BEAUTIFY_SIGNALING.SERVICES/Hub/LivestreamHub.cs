@@ -39,7 +39,7 @@ public class LivestreamHub(
     private static readonly ConcurrentDictionary<Guid, HashSet<string>> RoomListeners = new();
     private static readonly ConcurrentDictionary<string, HashSet<Guid>> UserRooms = new();
     private static readonly ConcurrentDictionary<Guid, ConcurrentQueue<Activity>> RoomLogs = new();
-    
+    private static readonly ConcurrentDictionary<string, HashSet<Guid>> HostConnections = new();
     
     /// <summary>
     /// Activity model for logging
@@ -77,6 +77,26 @@ public class LivestreamHub(
     }
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        // Check if this is a host disconnecting
+        if (HostConnections.TryGetValue(Context.ConnectionId, out var hostedRooms))
+        {
+            foreach (var roomGuid in hostedRooms.ToList())
+            {
+                logger.LogInformation("Host disconnected, ending livestream for room {RoomGuid}", roomGuid);
+                try 
+                {
+                    await EndLivestream(roomGuid);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error ending livestream for room {RoomGuid}", roomGuid);
+                }
+            }
+        
+            // Remove from host tracking
+            HostConnections.TryRemove(Context.ConnectionId, out _);
+        }
+        
         if (UserRooms.TryGetValue(Context.ConnectionId, out var rooms))
         {
             foreach (var roomGuid in rooms)
@@ -299,6 +319,12 @@ public class LivestreamHub(
             UserRooms[Context.ConnectionId] = new HashSet<Guid>();
 
         UserRooms[Context.ConnectionId].Add(roomGuid);
+        
+        // Add this line to track host connection
+        if (!HostConnections.ContainsKey(Context.ConnectionId))
+            HostConnections[Context.ConnectionId] = new HashSet<Guid>();
+    
+        HostConnections[Context.ConnectionId].Add(roomGuid);
 
         await Groups.AddToGroupAsync(Context.ConnectionId, roomGuid + HostSuffix);
 
