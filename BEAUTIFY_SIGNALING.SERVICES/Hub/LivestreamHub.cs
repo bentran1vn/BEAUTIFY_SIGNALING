@@ -33,7 +33,7 @@ public class LivestreamHub(
     private const string ListenerSuffix = "_listener";
     private const string JanusVideoRoomPlugin = "janus.plugin.videoroom";
     private readonly string _janusUrl = configuration.GetValue<string>("JanusUrl")!;
-    private const int VirtualViewBoost = 10;
+    private const int VirtualViewBoost = 0;
 
     private static readonly ConcurrentDictionary<Guid, (long sessionId, long handleId, long janusRoomId)> Rooms = new();
     private static readonly ConcurrentDictionary<Guid, HashSet<string>> RoomListeners = new();
