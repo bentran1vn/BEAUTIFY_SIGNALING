@@ -792,6 +792,9 @@ public class LivestreamHub(
     public async Task SendMessage(Guid roomGuid, string message)
     {
         var userId = Context.GetHttpContext()?.Request.Query["userId"];
+        var fullName = Context.GetHttpContext()?.Request.Query["fullName"];
+        var profilePicture = Context.GetHttpContext()?.Request.Query["profilePicture"];
+        var isClinicAdmin = Context.GetHttpContext()?.Request.Query["isClinicAdmin"];
         
         if (string.IsNullOrEmpty(userId))
         {
@@ -808,6 +811,9 @@ public class LivestreamHub(
         {
             UserId = new Guid(userId),
             Message = message,
+            FullName = fullName,
+            ProfilePicture = profilePicture,
+            IsClinicAdmin = isClinicAdmin,
             CreateAt = DateTime.Now
         });
 
@@ -815,6 +821,9 @@ public class LivestreamHub(
         {
             UserId = new Guid(userId),
             Message = message,
+            FullName = fullName,
+            ProfilePicture = profilePicture,
+            IsClinicAdmin = isClinicAdmin,
             CreateAt = DateTime.Now
         });
     }
