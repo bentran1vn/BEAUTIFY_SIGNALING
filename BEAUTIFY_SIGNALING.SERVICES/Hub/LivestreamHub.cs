@@ -427,11 +427,13 @@ public class LivestreamHub(
         
             foreach (var activity in totalLogs)
             {
+                var userId = Guid.TryParse(activity.UserId, out var userGuid);
+                
                 var log = new LiveStreamLog
                 {
                     Id = Guid.NewGuid(),
                     LivestreamRoomId = roomGuid,
-                    UserId = activity.UserId != null ? new Guid(activity.UserId) : null,
+                    UserId = activity.UserId != null ? userId ? userGuid : null : null,
                     ActivityType = activity.ActivityType,
                     Message = activity.Message,
                     CreatedOnUtc = activity.Timestamp
