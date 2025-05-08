@@ -804,10 +804,13 @@ public class LivestreamHub(
             Context.Abort();
             return;
         }
-
-        // Register message activity
-        await RegisterRoomLog(roomGuid, userId, 1, message);
-
+        
+        if(bool.TryParse(isClinicAdmin, out var isAdmin) && !isAdmin)
+        {
+            // Register message activity
+            await RegisterRoomLog(roomGuid, userId, 1, message);
+        }
+        
         // Broadcast message to the room
         await Clients.Group(roomGuid + HostSuffix).SendAsync("ReceiveMessage", new
         {
